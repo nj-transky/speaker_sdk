@@ -1,0 +1,10 @@
+prefix=C:/Program Files/mavftp_pro_build
+exec_prefix=
+libdir=
+includedir=
+
+Name: MAVFTP_Pro
+Description: API and library for MAVLink compatible systems written in C++17
+Version: 
+Libs: -L"${libdir}" -lmavsdk
+Cflags: -I"${includedir}" -I"${includedir}"

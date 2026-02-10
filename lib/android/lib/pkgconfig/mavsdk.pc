@@ -1,0 +1,11 @@
+prefix=/work/install/android/mavsdk
+exec_prefix=/work/install/android/mavsdk/bin
+libdir=/work/install/android/mavsdk/lib
+includedir=/work/install/android/mavsdk/include
+
+Name: MAVSDK
+Description: API and library for MAVLink compatible systems written in C++17
+Version: fe7d1a2b-dirty.fe7d1a2b-dirty.fe7d1a2b-dirty
+Requires.private: libcurl jsoncpp tinyxml2
+Libs: -L"${libdir}" -lmavsdk
+Cflags: -I"${includedir}" -I"${includedir}/mavsdk"

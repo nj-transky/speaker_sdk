@@ -1,0 +1,11 @@
+prefix=/home/hyh/workspace/transky/project/S600L/sdk_to_user/speaker_sdk/lib/linux
+exec_prefix=/home/hyh/workspace/transky/project/S600L/sdk_to_user/speaker_sdk/lib/linux
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: jsoncpp
+Description: A C++ library for interacting with JSON
+Version: 1.9.5
+URL: https://github.com/open-source-parsers/jsoncpp
+Libs: -L${libdir} -ljsoncpp
+Cflags: -I${includedir}

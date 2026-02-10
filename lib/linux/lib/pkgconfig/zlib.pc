@@ -1,0 +1,14 @@
+prefix=/home/hyh/workspace/transky/project/S600L/sdk_to_user/speaker_sdk/lib/linux
+exec_prefix=${prefix}
+symbol_prefix=
+libdir=${exec_prefix}/lib
+sharedlibdir=${libdir}
+includedir=${prefix}/include
+
+Name: zlib
+Description: zlib-ng compression library
+Version: 1.3.0.zlib-ng
+
+Requires:
+Libs: -L${libdir} -L${sharedlibdir} -lz
+Cflags: -I${includedir} -DWITH_GZFILEOP
