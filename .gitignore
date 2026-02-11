@@ -1,4 +1,11 @@
-build
-.*
+*
+
 !.gitignore
-compile_commands.json
+
+!lib/
+!lib/**
+
+!demo/
+!demo/*.cpp
+!demo/*.h
+!demo/Makefile
