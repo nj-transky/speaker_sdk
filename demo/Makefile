@@ -52,3 +52,19 @@ run:
 clean:
 	rm -rf ./$(BUILD_DIR)
 
+
+push:
+	ffmpeg -re -i ./audio/audio.wav \
+    -vn -acodec aac  \
+    -ar 16000 -ac 2 \
+    -f rtp -payload_type 97 \
+    -sdp_file ./audio/client_audio.sdp \
+    rtp://192.168.144.67:15557
+pull:
+	ffplay \
+		-nodisp \
+		-autoexit \
+		-protocol_whitelist file,udp,rtp \
+		-i ./audio/server_audio.sdp
+video:
+	ffplay "rtsp://192.168.144.19:554"

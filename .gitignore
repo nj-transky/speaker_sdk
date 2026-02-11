@@ -9,3 +9,6 @@
 !demo/*.cpp
 !demo/*.h
 !demo/Makefile
+!demo/audio/
+!demo/audio/**
+
