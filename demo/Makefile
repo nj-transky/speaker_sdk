@@ -1,10 +1,13 @@
-APP        := speaker_sdk_example
+APP_NAME        := speaker_sdk_example
 
 SDK_DEMO_ROOT := ../demo
 SDK_LIB_ROOT  := ../lib/linux/lib
 
+BUILD_DIR := build
+
 APP_SRC   := main.cpp
-APP_OBJ   := $(APP_SRC:.cpp=.o)
+APP_OBJ   := $(addprefix $(BUILD_DIR)/, $(APP_SRC:.cpp=.o))
+APP_BIN   := $(BUILD_DIR)/$(APP_NAME)
 
 CXX       := g++
 CXXSTD    := -std=c++17
@@ -30,14 +33,22 @@ LDFLAGS  := $(LIBDIR) $(LIBS)
 
 .PHONY: all clean
 
-all: $(APP)
+all: $(APP_BIN)
 
-$(APP): $(APP_OBJ)
+$(APP_BIN): $(APP_OBJ) | $(BUILD_DIR)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
-%.o: %.cpp
+$(BUILD_DIR)/%.o: %.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+SPEAKER_IP := 192.168.144.67
+SPEAKER_PORT := 14556
+run:
+	./$(APP_BIN) $(SPEAKER_IP) $(SPEAKER_PORT)
+
 clean:
-	rm -f $(APP) $(APP_OBJ)
+	rm -rf ./$(BUILD_DIR)
 
