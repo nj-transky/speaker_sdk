@@ -64,5 +64,23 @@ print:
 	@echo "MAVSDK_CFLAGS=$(MAVSDK_CFLAGS)"
 	@echo "MAVSDK_LIBS=$(MAVSDK_LIBS)"
 	@echo "MAV_FTP_PRO_LIBS=$(MAV_FTP_PRO_LIBS)"
+IP := 10.18.0.213
 run:
-	./build/S600L_client 10.18.0.213 14556
+	./build/S600L_client $(IP) 14556
+push:
+	ffmpeg -re -i ./audio/audio.wav \
+    -vn -acodec aac  \
+    -ar 16000 -ac 2 \
+    -f rtp -payload_type 97 \
+    -sdp_file client_audio.sdp \
+    rtp://$(IP):15557
+
+pull:
+	ffplay \
+    -nodisp \
+    -autoexit \
+    -protocol_whitelist file,udp,rtp \
+	-i ./audio/server_audio.sdp
+CAMERA_IP := 10.18.0.215
+camera:
+	ffplay rtsp://$(CAMERA_IP)/554
