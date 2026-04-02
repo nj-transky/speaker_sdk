@@ -64,7 +64,7 @@ print:
 	@echo "MAVSDK_CFLAGS=$(MAVSDK_CFLAGS)"
 	@echo "MAVSDK_LIBS=$(MAVSDK_LIBS)"
 	@echo "MAV_FTP_PRO_LIBS=$(MAV_FTP_PRO_LIBS)"
-IP := 10.18.0.213
+IP :=  192.168.144.67
 run:
 	./build/S600L_client $(IP) 14556
 push:
@@ -81,6 +81,6 @@ pull:
     -autoexit \
     -protocol_whitelist file,udp,rtp \
 	-i ./audio/server_audio.sdp
-CAMERA_IP := 10.18.0.215
+CAMERA_IP := 192.168.144.19
 camera:
 	ffplay rtsp://$(CAMERA_IP)/554
