@@ -13,6 +13,8 @@ make
 # 运行
 cd demo
 ./build/S600L_client 192.168.144.67 14556
+# or
+make run
 ```
 
 # 喊话功能
