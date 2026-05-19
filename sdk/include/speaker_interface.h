@@ -43,10 +43,20 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#  ifdef SPEAKER_INTERFACE_BUILD
+#    define SPEAKER_INTERFACE_API __declspec(dllexport)
+#  else
+#    define SPEAKER_INTERFACE_API __declspec(dllimport)
+#  endif
+#else
+#  define SPEAKER_INTERFACE_API __attribute__((visibility("default")))
+#endif
+
 // Forward declarations -- developers do NOT need these headers.
 namespace mavsdk { class Mavsdk; }
 
-class SpeakerInterface {
+class SPEAKER_INTERFACE_API SpeakerInterface {
 public:
     SpeakerInterface();
     ~SpeakerInterface();
