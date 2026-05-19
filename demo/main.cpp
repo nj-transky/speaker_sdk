@@ -45,7 +45,7 @@ static void print_help()
               << "  speak <start|stop>                - Real-time speak\n"
               << "  volume <0-100>                    - Set volume\n"
               << "  angle <roll> <pitch> <yaw>        - Set angle (H600L)\n"
-              << "  light_mode <mode>                 - Set light mode\n"
+              << "  light_mode <mode>                 - Set light mode(0-4)\n"
               << "  light <on|off>                    - Light on/off\n"
               << "  ex_light <on|off>                 - External light (S600L)\n"
               << "  take_picture                      - Take photo (S600L)\n"

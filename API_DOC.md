@@ -133,23 +133,38 @@ speaker.start_listen();
 ---
 
 
-## CLI 命令参考
-
+## CLI命令参考
 ```
-upload <file>      - 上传音频
-list               - 列出音频文件
-rename <old> <new>- 重命名
-delete <file>     - 删除
-sub <file>         - 订阅音频信息（获取 index）
-play <index>       - 播放
-loop <index>       - 循环播放
-stop               - 停止
-listen start/stop  - 拉流 start/stop
-speak start/stop   - 推流 start/stop
-volume <0-100>     - 设置音量
-light_mode <mode>  - 灯光模式
-light on/off       - 开关灯光
-take_picture       - 拍照
-information        - 获取设备信息
-config set/get     - 参数设置/获取
+  upload <local_file>               - Upload audio file into speaker
+  upload_fw <firmware_path>          - Upload firmware and restart
+  list                              - List audio files
+  rename <old_name> <new_name>      - Rename audio file
+  delete <filename>                 - Delete audio file
+  sub <filename>                    - Subscribe to audio info
+  play <index>                      - Play audio once
+  loop <index>                      - Loop-play audio
+  stop                              - Stop playback
+  listen <start|stop>               - Real-time listen
+  speak <start|stop>                - Real-time speak
+  volume <0-100>                    - Set volume
+  angle <roll> <pitch> <yaw>        - Set angle (H600L)
+  light_mode <mode>                 - Set light mode(0-4)
+  light <on|off>                    - Light on/off
+  ex_light <on|off>                 - External light (S600L)
+  take_picture                      - Take photo (S600L)
+  start_video                       - Start recording (S600L)
+  stop_video                        - Stop recording (S600L)
+  switch_lens <0|1>                 - Switch lens (S600L)
+  camera_get                - Get camera network params (S600L)
+  camera_set <ip> <bitrate> <resolution> <encoding>
+                                    - Set camera network params (S600L)
+                                      bitrate: 0-7, resolution: 0-3, encoding: 0-2
+  information                       - Device info
+  storage                           - Storage info
+  restart                           - Restart speaker
+  config set <name> <value>         - Set parameter
+  config get <name>                 - Get parameter
+  config list                       - List all parameters
+  help                              - Show this help
+  exit                              - Quit
 ```

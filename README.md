@@ -1,5 +1,5 @@
 # 准备
-+ **请首先查阅喊话器参数说明查看喊话器工作环境和工作电压等参数**
++ **请首先查阅喊话器用户查看喊话器工作环境和工作电压等参数**
 + **喊话器出厂默认IP为`192.168.144.67`,如自行修改，请在接下来的操作中使用相应的IP**
 + 确保电脑和喊话器在同一局域网下
   + 可通过`ping 192.168.144.67`查看是否在同一局域网
@@ -9,18 +9,20 @@
 ```bash
 # 编译
 cd demo
+# Linux
+make OS=linux ARCH=x86 SDK_VERSION=22.04
+# Win
 make
 # 运行
-cd demo
-./build/S600L_client 192.168.144.67 14556
-# or
 make run
 ```
 
 # 喊话功能
 该喊话器包含实时喊话，录音喊话和文字转语音功能
 ## 实时喊话
-实时喊话需要地面站准备好实时的音频流，再通过喊话器api开启喊话器端拉流操作,操作如下
+实时喊话需要地面站**先推送实时的音频流，再通过喊话器API开启喊话器端拉流操作**(顺序很重要)。
+喊话器会尝试拉流，如果尝试5次无法拉到音频流，将停止拉流，因此建议先推送音频流再使用API开启喊话器的拉流服务
+操作如下
 1. 在demo下运行`make push`
 ```bash
 ffmpeg -re -i ./audio/audio.wav \
@@ -38,14 +40,14 @@ ffmpeg -re -i ./audio/audio.wav \
 ## 文字转语音
 该功能也需要地面站完成文字转语音的功能， 然后将音频上传到喊话器中，然后播放
 # 实时监听
-同样的，实时监听需要先调用api，开启喊话器端的推流，然后地面站拉流
+同样的，实时监听需要先调用API，**先开启喊话器端的推流，然后地面站拉流**(顺序很重要)
 而且实时监听需要通过配置`SPK_LAN_IP`这个参数的值为地面站IP，例如在demo中通过`config set SPK_LAN_IP 192.168.144.12`，这样地面站才可以成功拉流
 ```bash
 ffplay \
-    -nodisp \
-    -autoexit \
-    -protocol_whitelist file,udp,rtp \
-	-i ./audio/server_audio.sdp
+-nodisp \
+-autoexit \
+-protocol_whitelist file,udp,rtp \
+-i ./audio/server_audio.sdp
 ```
 ![realtime_listening](demo/audio/realtime_listening.gif)
 
