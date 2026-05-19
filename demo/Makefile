@@ -127,7 +127,7 @@ push:
     -vn -acodec aac  \
     -ar 16000 -ac 2 \
     -f rtp -payload_type 97 \
-    -sdp_file client_audio.sdp \
+    -sdp_file ./audio/client_audio.sdp \
     rtp://$(IP):15557
 
 pull:
