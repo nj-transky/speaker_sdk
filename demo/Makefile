@@ -4,6 +4,10 @@ CMAKE_BUILD_DIR := build-msvc
 CMAKE_CONFIG ?= Release
 CMAKE_PLATFORM ?= x64
 
+BUILD_GOALS := all run copy print
+REQUESTED_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
+NEEDS_SDK := $(filter $(BUILD_GOALS),$(REQUESTED_GOALS))
+
 SDK_ROOT := $(abspath $(CURDIR)/../sdk)
 SDK_INC := $(SDK_ROOT)/include
 
@@ -37,13 +41,11 @@ endif
 SDK_OS ?= $(DETECTED_OS)
 SDK_ARCH ?= $(DETECTED_ARCH)
 
+ifneq ($(NEEDS_SDK),)
 # SDK_VERSION: required for linux/x86, optional for others
 ifeq ($(SDK_OS),linux)
     ifeq ($(SDK_ARCH),x86)
         ifndef SDK_VERSION
-            ifneq ($(MAKECMDGOALS),clean)
-                $(error SDK_VERSION must be set for linux/x86, e.g. make SDK_VERSION=24.04)
-            endif
             SDK_VERSION := 24.04
         endif
         SDK_LIB := $(SDK_ROOT)/lib/$(SDK_OS)/$(SDK_ARCH)/$(SDK_VERSION)
@@ -53,11 +55,13 @@ ifeq ($(SDK_OS),linux)
 else
     SDK_LIB := $(SDK_ROOT)/lib/$(SDK_OS)/$(SDK_ARCH)
 endif
+endif
 
 SRCS := main.cpp speaker_utils.cpp
 CXX ?= g++
 OBJS := $(addprefix $(BUILD_DIR)/,$(SRCS:.cpp=.o))
 
+ifneq ($(NEEDS_SDK),)
 # OS determines lib path and file extension
 ifeq ($(SDK_OS),win)
     LIB_EXT := .dll
@@ -65,6 +69,7 @@ ifeq ($(SDK_OS),win)
 else
     LIB_EXT := .so
     EXE_EXT :=
+endif
 endif
 
 CXXFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra
