@@ -3,11 +3,17 @@
  * @brief Demo CLI for the speaker SDK.
  *
  * This is a simple interactive shell that demonstrates every SpeakerInterface API.
- * Developers should read interface.h for the full API reference.
  *
  * Usage:
  *   ./S600L_client <ip> <port>
- *   e.g.: ./S600L_client 192.168.144.67 14556
+ *   ./S600L_client <connection_url> [ftp_url]
+ *
+ * Examples:
+ *   ./S600L_client 192.168.144.67 14556
+ *   ./S600L_client udpin://0.0.0.0:14550
+ *   ./S600L_client mqttout://47.120.45.100:1883;client1
+ *   ./S600L_client serial:///dev/ttyUSB0:57600
+ *   ./S600L_client tcpout://192.168.144.67:14556 tcpout://192.168.144.67:14566
  */
 
 #include <iostream>
@@ -33,14 +39,18 @@ static void print_help()
 {
     std::cout << "\n===== SPEAKER CLIENT COMMANDS =====\n"
               << "  upload <local_file>               - Upload audio file into speaker\n"
+              << "  download <remote_name> <local>    - Download audio file\n"
               << "  upload_fw <firmware_path>          - Upload firmware and restart\n"
               << "  list                              - List audio files\n"
               << "  rename <old_name> <new_name>      - Rename audio file\n"
               << "  delete <filename>                 - Delete audio file\n"
               << "  sub <filename>                    - Subscribe to audio info\n"
+              << "  unsub <handle>                    - Unsubscribe audio info\n"
               << "  play <index>                      - Play audio once\n"
               << "  loop <index>                      - Loop-play audio\n"
               << "  stop                              - Stop playback\n"
+              << "  status                            - Get speaker status\n"
+              << "  status_sub                        - Subscribe to status updates\n"
               << "  listen <start|stop>               - Real-time listen\n"
               << "  speak <start|stop>                - Real-time speak\n"
               << "  volume <0-100>                    - Set volume\n"
@@ -48,6 +58,7 @@ static void print_help()
               << "  light_mode <mode>                 - Set light mode(0-4)\n"
               << "  light <on|off>                    - Light on/off\n"
               << "  ex_light <on|off>                 - External light (S600L)\n"
+              << "  ex_light_status                   - Get external light status (S600L)\n"
               << "  take_picture                      - Take photo (S600L)\n"
               << "  start_video                       - Start recording (S600L)\n"
               << "  stop_video                        - Stop recording (S600L)\n"
@@ -58,10 +69,13 @@ static void print_help()
               << "                                      bitrate: 0-7, resolution: 0-3, encoding: 0-2\n"
               << "  information                       - Device info\n"
               << "  storage                           - Storage info\n"
+              << "  format                            - Format storage (erases all data!)\n"
               << "  restart                           - Restart speaker\n"
               << "  config set <name> <value>         - Set parameter\n"
               << "  config get <name>                 - Get parameter\n"
               << "  config list                       - List all parameters\n"
+              << "  log_sub                           - Subscribe to log\n"
+              << "  log_unsub <handle>                 - Unsubscribe log\n"
               << "  help                              - Show this help\n"
               << "  exit                              - Quit\n"
               << "======================================\n";
@@ -88,18 +102,12 @@ static void print_param(const SpeakerInterface::ParamValue& pv)
 int main(int argc, const char* argv[])
 {
     // --- Parse command-line arguments ---
-    if (argc < 3) {
+    if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <ip> <port>\n"
-                  << "  e.g.: " << argv[0] << " 192.168.144.67 14556" << std::endl;
-        return 1;
-    }
-
-    const std::string ip = argv[1];
-    int port = 0;
-    try {
-        port = std::stoi(argv[2]);
-    } catch (...) {
-        std::cerr << "Invalid port: " << argv[2] << std::endl;
+                  << "       " << argv[0] << " <connection_url> [ftp_url]\n"
+                  << "  e.g.: " << argv[0] << " 192.168.144.67 14556\n"
+                  << "        " << argv[0] << " mqttout://broker:1883;client1\n"
+                  << "        " << argv[0] << " serial:///dev/ttyUSB0:57600" << std::endl;
         return 1;
     }
 
@@ -107,11 +115,37 @@ int main(int argc, const char* argv[])
     SpeakerInterface speaker;
     speaker.set_verbose(true);  // Demo mode: show debug/progress output
 
-    if (!speaker.init(ip, port)) {
+    std::string first_arg = argv[1];
+    bool init_ok = false;
+
+    if (first_arg.find("://") != std::string::npos) {
+        // URL mode
+        std::string ftp_url = (argc >= 3) ? argv[2] : "";
+        init_ok = speaker.init(first_arg, ftp_url, 10);
+    } else {
+        // Traditional ip port mode
+        if (argc < 3) {
+            std::cerr << "Usage: " << argv[0] << " <ip> <port>" << std::endl;
+            return 1;
+        }
+        int port = 0;
+        try {
+            port = std::stoi(argv[2]);
+        } catch (...) {
+            std::cerr << "Invalid port: " << argv[2] << std::endl;
+            return 1;
+        }
+        init_ok = speaker.init(first_arg, port);
+    }
+
+    if (!init_ok) {
         std::cerr << "SDK init failed." << std::endl;
         return 1;
     }
 
+    if (!speaker.is_ftp_available()) {
+        std::cout << "Note: FTP not available. File operations will not work." << std::endl;
+    }
 
     // --- Interactive command loop ---
     std::cout << "Speaker Client - Interactive Mode" << std::endl;
@@ -134,6 +168,9 @@ int main(int argc, const char* argv[])
         // ---------- File operations ----------
         } else if (cmd == "upload" && args.size() >= 2) {
             speaker.upload_audio(args[1]);
+
+        } else if (cmd == "download" && args.size() >= 3) {
+            speaker.download_audio(args[1], args[2]);
 
         } else if (cmd == "upload_fw" && args.size() >= 2) {
             speaker.upload_firmware(args[1]);
@@ -159,7 +196,7 @@ int main(int argc, const char* argv[])
             speaker.delete_audio(args[1]);
 
         } else if (cmd == "sub" && args.size() >= 2) {
-            speaker.subscribe_audio_info(args[1],
+            auto h = speaker.subscribe_audio_info(args[1],
                 [](const SpeakerInterface::AudioFileInfo& info) {
                     std::cout << "Audio: " << info.name
                               << " index=" << info.index
@@ -167,6 +204,44 @@ int main(int argc, const char* argv[])
                               << " length=" << info.length_seconds << "s"
                               << std::endl;
                 });
+            std::cout << "Subscribed (handle=" << h << ")" << std::endl;
+
+        } else if (cmd == "unsub" && args.size() >= 2) {
+            int handle = std::stoi(args[1]);
+            speaker.unsubscribe_audio_info(handle);
+
+        // ---------- Status ----------
+        } else if (cmd == "status") {
+            SpeakerInterface::SpeakerStatus s;
+            if (speaker.get_status(s)) {
+                std::cout << "\n===== SPEAKER STATUS =====" << std::endl;
+                std::cout << "  Play mode:    " << play_mode_to_string(s.play_mode) << std::endl;
+                std::cout << "  Play status:  " << play_status_to_string(s.play_status) << std::endl;
+                std::cout << "  Play time:    " << s.playing_time_s << " s" << std::endl;
+                std::cout << "  Volume:       " << s.current_volume << " %" << std::endl;
+                std::cout << "  Signal:       " << s.network_module_signal_quality << " %" << std::endl;
+                std::cout << "  Latency:      " << s.network_module_latency_ms << " ms" << std::endl;
+                std::cout << "  Angle:        roll=" << s.angle.roll << " pitch=" << s.angle.pitch << " yaw=" << s.angle.yaw << std::endl;
+                std::cout << "  Light mode:   " << light_mode_to_string(s.light_mode) << std::endl;
+                std::cout << "  Light on/off: " << (s.light_on_off == SpeakerInterface::SwitchOnOff::On ? "On" : "Off") << std::endl;
+                std::cout << "  Listen:       " << voice_status_to_string(s.real_time_listen_status) << std::endl;
+                std::cout << "  Speak:        " << voice_status_to_string(s.real_time_speak_status) << std::endl;
+                std::cout << "=========================" << std::endl;
+            }
+
+        } else if (cmd == "status_sub") {
+            speaker.subscribe_status([](const SpeakerInterface::SpeakerStatus& s) {
+                std::cout << "[STATUS] mode=" << play_mode_to_string(s.play_mode)
+                          << " status=" << play_status_to_string(s.play_status)
+                          << " vol=" << s.current_volume
+                          << " time=" << s.playing_time_s << "s"
+                          << " signal=" << s.network_module_signal_quality << "%"
+                          << " latency=" << s.network_module_latency_ms << "ms"
+                          << " listen=" << voice_status_to_string(s.real_time_listen_status)
+                          << " speak=" << voice_status_to_string(s.real_time_speak_status)
+                          << std::endl;
+            });
+            std::cout << "Subscribed to status updates." << std::endl;
 
         // ---------- Playback ----------
         } else if (cmd == "play" && args.size() >= 2) {
@@ -187,7 +262,7 @@ int main(int argc, const char* argv[])
         } else if (cmd == "speak" && args.size() >= 2) {
             if (args[1] == "start") speaker.start_speak();
             else if (args[1] == "stop") speaker.stop_speak();
-            else std::cout << "Usage: speake <start|stop>" << std::endl;
+            else std::cout << "Usage: speak <start|stop>" << std::endl;
 
         // ---------- Volume / Angle ----------
         } else if (cmd == "volume" && args.size() >= 2) {
@@ -205,6 +280,12 @@ int main(int argc, const char* argv[])
 
         } else if (cmd == "ex_light" && args.size() >= 2) {
             speaker.set_external_light_on_off(args[1] == "on");
+
+        } else if (cmd == "ex_light_status") {
+            bool on = false;
+            if (speaker.get_external_light_status(on)) {
+                std::cout << "External light: " << (on ? "On" : "Off") << std::endl;
+            }
 
         // ---------- Camera ----------
         } else if (cmd == "take_picture") {
@@ -264,6 +345,17 @@ int main(int argc, const char* argv[])
                           << "Available: " << si.available_mib << " MiB" << std::endl;
             }
 
+        } else if (cmd == "format") {
+            std::cout << "WARNING: This will erase all data on the speaker storage!" << std::endl;
+            std::cout << "Type 'yes' to confirm: ";
+            std::string confirm;
+            std::getline(std::cin, confirm);
+            if (confirm == "yes") {
+                speaker.format_storage();
+            } else {
+                std::cout << "Cancelled." << std::endl;
+            }
+
         } else if (cmd == "restart") {
             speaker.restart();
 
@@ -292,6 +384,19 @@ int main(int argc, const char* argv[])
             } else {
                 std::cout << "Usage: config <set name value | get name | list>" << std::endl;
             }
+
+        // ---------- Log ----------
+        } else if (cmd == "log_sub") {
+            auto h = speaker.subscribe_log_information(
+                [](const SpeakerInterface::LogInformation& li) {
+                    std::cout << "[" << log_level_to_string(li.log_level) << "] " << li.text << std::endl;
+                });
+            std::cout << "Log subscribed (handle=" << h << ")" << std::endl;
+
+        } else if (cmd == "log_unsub" && args.size() >= 2) {
+            int handle = std::stoi(args[1]);
+            speaker.unsubscribe_log_information(handle);
+
         } else {
             std::cout << "Unknown command or missing arguments. Type 'help' for commands." << std::endl;
         }

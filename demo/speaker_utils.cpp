@@ -99,3 +99,58 @@ int string_to_encoding(const std::string& str)
     if (str == "H265" || str == "h265") return 2;
     return 0; // Default
 }
+
+// Speaker status display helper functions
+std::string play_mode_to_string(SpeakerInterface::PlayMode mode)
+{
+    switch (mode) {
+    case SpeakerInterface::PlayMode::None:          return "None";
+    case SpeakerInterface::PlayMode::SinglePlay:    return "SinglePlay";
+    case SpeakerInterface::PlayMode::LoopPlay:      return "LoopPlay";
+    case SpeakerInterface::PlayMode::RealTimeSpeak: return "RealTimeSpeak";
+    default:                                        return "Unknown";
+    }
+}
+
+std::string play_status_to_string(SpeakerInterface::PlayStatus status)
+{
+    switch (status) {
+    case SpeakerInterface::PlayStatus::Idle:    return "Idle";
+    case SpeakerInterface::PlayStatus::Playing: return "Playing";
+    default:                                    return "Unknown";
+    }
+}
+
+std::string voice_status_to_string(SpeakerInterface::RealTimeVoiceStatus status)
+{
+    switch (status) {
+    case SpeakerInterface::RealTimeVoiceStatus::Off:    return "Off";
+    case SpeakerInterface::RealTimeVoiceStatus::On:     return "On";
+    case SpeakerInterface::RealTimeVoiceStatus::Error:  return "Error";
+    default:                                            return "Unknown";
+    }
+}
+
+std::string light_mode_to_string(SpeakerInterface::LightMode mode)
+{
+    switch (mode) {
+    case SpeakerInterface::LightMode::Unknown: return "Unknown";
+    case SpeakerInterface::LightMode::Mode1:   return "Mode1";
+    case SpeakerInterface::LightMode::Mode2:   return "Mode2";
+    case SpeakerInterface::LightMode::Mode3:   return "Mode3";
+    case SpeakerInterface::LightMode::Mode4:   return "Mode4";
+    default:                                   return "Unknown";
+    }
+}
+
+std::string log_level_to_string(SpeakerInterface::LogLevel level)
+{
+    switch (level) {
+    case SpeakerInterface::LogLevel::Debug:   return "Debug";
+    case SpeakerInterface::LogLevel::Info:    return "Info";
+    case SpeakerInterface::LogLevel::Warning: return "Warn";
+    case SpeakerInterface::LogLevel::Error:   return "Error";
+    case SpeakerInterface::LogLevel::Fatal:   return "Fatal";
+    default:                                 return "Unknown";
+    }
+}

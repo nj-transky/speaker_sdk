@@ -1,6 +1,6 @@
 #pragma once
 /**
- * @file interface.h
+ * @file speaker_interface.h
  * @brief High-level speaker SDK interface for S600L / H600L.
  *
  * This is the ONLY file you need to read as a developer.
@@ -15,26 +15,20 @@
  *   speaker.set_verbose(true);  // optional: enable debug prints
  *   if (!speaker.init("192.168.144.67", 14556)) { ... handle error ... }
  *
+ *   // Or connect via URL (TCP/UDP/Serial/MQTT):
+ *   speaker.init("tcpout://192.168.144.67:14556", "tcpout://192.168.144.67:14566");
+ *   speaker.init("mqttout://broker:1883;client_id");
+ *   speaker.init("serial:///dev/ttyUSB0:57600");
+ *
  *   // Upload audio
  *   speaker.upload_audio("./local/test.wav");
  *
- *   // List files -- data is returned, not just printed
- *   SpeakerInterface::FileList files;
- *   if (speaker.list_audio(files)) {
- *       for (auto& f : files.files) { ... }
- *   }
- *
- *   // Get device info
- *   SpeakerInterface::DeviceInfo info;
- *   speaker.get_information(info);
- *
- *   // Playback
- *   speaker.play(0);
- *   speaker.set_volume(80);
+ *   // Get status
+ *   SpeakerInterface::SpeakerStatus status;
+ *   speaker.get_status(status);
  *
  *   // Parameters
- *   std::string value;
- *   speaker.get_param("SPK_LAN_IP", value);
+ *   speaker.set_param_int("SOME_PARAM", 42);
  */
 
 #include <cstdint>
@@ -88,10 +82,10 @@ public:
 
     /** @brief Audio file metadata. */
     struct AudioFileInfo {
-        std::string name;
-        uint32_t index{0};
-        std::string format;
-        float length_seconds{0.0f};
+        std::string name;            ///< audio file name
+        uint32_t index{0};            /// audio file index
+        std::string format;           /// audio file format
+        float length_seconds{0.0f};   /// audio file length in seconds
     };
 
     /** @brief A single named parameter (int, float, or string). */
@@ -101,6 +95,79 @@ public:
         int int_val{0};
         float float_val{0.0f};
         std::string string_val;
+    };
+
+    /** @brief Speaker play mode. */
+    enum class PlayMode {
+        None,          ///< No active play mode
+        SinglePlay,    ///< Play a single audio file
+        LoopPlay,      ///< Loop-play an audio file
+        RealTimeSpeak  ///< Real-time speak mode
+    };
+
+    /** @brief Speaker play status. */
+    enum class PlayStatus {
+        Idle,     ///< Not playing
+        Playing   ///< Currently playing
+    };
+
+    /** @brief Real-time voice status. */
+    enum class RealTimeVoiceStatus {
+        Off,    ///< Real-time voice off
+        On,     ///< Real-time voice on
+        Error   ///< Real-time voice error
+    };
+
+    /** @brief Built-in light mode. */
+    enum class LightMode {
+        Unknown = 0,  ///< Unknown light mode
+        Mode1 = 1,    ///< Light mode 1
+        Mode2 = 2,    ///< Light mode 2
+        Mode3 = 3,    ///< Light mode 3
+        Mode4 = 4     ///< Light mode 4
+    };
+
+    /** @brief On/Off switch. */
+    enum class SwitchOnOff {
+        Off,  ///< Off
+        On    ///< On
+    };
+
+    /** @brief Log level. */
+    enum class LogLevel {
+        Debug,   ///< Debug log level
+        Info,    ///< Info log level
+        Warning, ///< Warning log level
+        Error,   ///< Error log level
+        Fatal    ///< Fatal log level
+    };
+
+    /** @brief Gimbal angle values. */
+    struct Angle {
+        float roll{0.0f};             ///< Roll angle in degrees
+        float pitch{0.0f};            ///< Pitch angle in degrees
+        float yaw{0.0f};              ///< Yaw angle in degrees
+    };
+
+    /** @brief Current speaker status. */
+    struct SpeakerStatus {
+        PlayMode play_mode{PlayMode::None};        ///< Current play mode
+        PlayStatus play_status{PlayStatus::Idle};   ///< Current play status
+        float playing_time_s{0.0f};                   ///< Elapsed playback time in seconds
+        float current_volume{0.0f};                   ///< Volume percentage (0-100)
+        int32_t network_module_signal_quality{0};     ///< Signal quality percentage
+        float network_module_latency_ms{0.0f};        ///< Network latency in milliseconds
+        Angle angle;
+        LightMode light_mode{LightMode::Unknown};
+        SwitchOnOff light_on_off{SwitchOnOff::Off};
+        RealTimeVoiceStatus real_time_listen_status{RealTimeVoiceStatus::Off};
+        RealTimeVoiceStatus real_time_speak_status{RealTimeVoiceStatus::Off};
+    };
+
+    /** @brief Log information from the speaker. */
+    struct LogInformation {
+        std::string text;
+        LogLevel log_level{LogLevel::Info};
     };
 
     // ==================== Configuration ====================
@@ -122,11 +189,11 @@ public:
     /**
      * @brief Initialize the SDK and connect to the speaker over TCP.
      * @param ip   Device IP address, e.g. "192.168.144.67"
-     * @param port MAVSDK TCP port, e.g. 14556
+     * @param port TCP port, e.g. 14556
      * @return true on success (system discovered), false on failure.
      *
      * This performs the full lifecycle:
-     *   1. Create MAVSDK instance with GroundStation role.
+     *   1. Create instance with GroundStation role.
      *   2. Connect via TCP (tcpout://<ip>:<port>).
      *   3. Wait up to 10 s for speaker system discovery.
      *   4. Create internal FTP-pro backend (port + 10).
@@ -134,22 +201,55 @@ public:
      */
     bool init(const std::string& ip, int port);
 
+    /**
+     * @brief Initialize the SDK and connect using a connection URL.
+     * @param connection_url  Full MAVSDK connection URL, e.g.:
+     *   - "tcpout://192.168.144.67:14556"
+     *   - "udpout://192.168.144.67:14550"
+     *   - "serial:///dev/ttyUSB0:57600"
+     *   - "mqttout://47.120.45.100:1883;client_id"
+     * @param ftp_url  Optional FTP-pro TCP URL for file operations.
+     *   If empty, file operations will be unavailable.
+     *   For TCP connections, typically "tcpout://<ip>:<port+10>".
+     * @param timeout_s  Timeout in seconds for system discovery (default 10).
+     * @return true on success (system discovered), false on failure.
+     */
+    bool init(const std::string& connection_url,
+              const std::string& ftp_url,
+              int timeout_s);
+
     /** @brief Check whether init() succeeded and the system is connected. */
     bool is_connected() const;
+
+    /** @brief Check whether FTP file operations are available. */
+    bool is_ftp_available() const;
+
+    /**
+     * @brief Subscribe a callback that fires when the device disconnects.
+     * @param callback  Called when connection is lost.
+     */
+    void subscribe_on_disconnect(std::function<void()> callback);
 
     // ==================== Audio File Operations ====================
 
     /**
-     * @brief Upload a local audio file into the speaker's media/ directory.
+     * @brief Upload a local audio file into the speaker's directory.
      * @param local_path Full local path, e.g. "./audio/test.wav"
      * @return true on success.
      *
-     * The remote destination is always media/<basename>.
      */
     bool upload_audio(const std::string& local_path);
 
     /**
-     * @brief List audio files in the speaker's media/ directory.
+     * @brief Download an audio file from the speaker's  directory.
+     * @param remote_filename Filename in  to download.
+     * @param local_path Local path to save the file.
+     * @return true on success.
+     */
+    bool download_audio(const std::string& remote_filename, const std::string& local_path);
+
+    /**
+     * @brief List audio files in the speaker's  directory.
      * @param[out] out  Populated with directory entries on success.
      * @return true on success.
      */
@@ -157,7 +257,7 @@ public:
 
     /**
      * @brief Rename an audio file on the speaker.
-     * @param old_name Current filename (relative to media/).
+     * @param old_name Current filename.
      * @param new_name New filename.
      * @return true on success.
      */
@@ -165,7 +265,7 @@ public:
 
     /**
      * @brief Delete an audio file from the speaker.
-     * @param filename Filename to delete (relative to media/).
+     * @param filename Filename to delete.
      * @return true on success.
      */
     bool delete_audio(const std::string& filename);
@@ -174,11 +274,17 @@ public:
      * @brief Subscribe to audio info updates for a given file.
      * @param filename The audio file name to query.
      * @param callback Called each time audio info is received.
-     *
-     * The subscription stays active until the SpeakerInterface is destroyed.
+     * @return Opaque handle for unsubscribe_audio_info().
      */
-    void subscribe_audio_info(const std::string& filename,
-                              std::function<void(const AudioFileInfo&)> callback);
+    using AudioInfoHandle = int;
+    AudioInfoHandle subscribe_audio_info(const std::string& filename,
+                                         std::function<void(const AudioFileInfo&)> callback);
+
+    /**
+     * @brief Unsubscribe from audio info updates.
+     * @param handle Handle returned by subscribe_audio_info().
+     */
+    void unsubscribe_audio_info(AudioInfoHandle handle);
 
     // ==================== Firmware Update ====================
 
@@ -187,14 +293,13 @@ public:
      * @param firmware_local_path Local path to the firmware file.
      * @return true if upload succeeded and restart was issued.
      *
-     * The firmware is uploaded to update/<basename>, then restart() is called.
      */
     bool upload_firmware(const std::string& firmware_local_path);
 
     // ==================== Playback Control ====================
 
     /**
-     * @brief Play an audio file once by index.
+     * @brief Play an audio file once by index, get the index from the subscribe_audio_info
      * @param index 0-based index in the media list.
      * @return true on success.
      */
@@ -210,12 +315,29 @@ public:
     /** @brief Stop the current playback. @return true on success. */
     bool stop();
 
+    // ==================== Status ====================
+
+    /**
+     * @brief Get the current speaker status (blocking).
+     * @param[out] out  Populated with the latest status on success.
+     * @return true if status was retrieved.
+     */
+    bool get_status(SpeakerStatus& out);
+
+    /**
+     * @brief Subscribe to continuous speaker status updates.
+     * @param callback  Called each time a new status is received.
+     *
+     * Replaces any previous subscription.
+     */
+    void subscribe_status(std::function<void(const SpeakerStatus&)> callback);
+
     // ==================== Real-Time Voice ====================
 
     /**
      * @brief Start real-time listening (speaker captures audio and streams to GCS).
      *
-     * Before calling this, ensure SPK_LAN_IP param is set to the GCS IP
+     * Before calling this, ensure SPK_LAN_IP param is set to the GCS IP by set_param_custom("SPK_LAN_IP", "ip of gcs")
      * so the speaker knows where to push the audio stream.
      * @return true on success.
      */
@@ -227,8 +349,7 @@ public:
     /**
      * @brief Start real-time speaking (GCS pushes audio stream to speaker).
      *
-     * Before calling this, start your audio stream sender (e.g. ffmpeg)
-     * targeting <speaker_ip>:15557.
+     * Before calling this, start your audio stream sender (e.g. ffmpeg), otherwise, real-time speaking may fail.
      * @return true on success.
      */
     bool start_speak();
@@ -246,7 +367,7 @@ public:
     bool set_volume(float volume_percent);
 
     /**
-     * @brief Set speaker gimbal angle (H600L only).
+     * @brief Set speaker gimbal angle, only use pitch angle (H600L only).
      * @return true on success.
      */
     bool set_angle(float roll, float pitch, float yaw);
@@ -273,6 +394,19 @@ public:
      * @return true on success.
      */
     bool set_external_light_on_off(bool on);
+
+    /**
+     * @brief Get the external light on/off status (S600L only).
+     * @param[out] on true = on, false = off.
+     * @return true if status was retrieved.
+     */
+    bool get_external_light_status(bool& on);
+
+    /**
+     * @brief Subscribe to external light on/off status changes (S600L only).
+     * @param callback Called with true (on) or false (off).
+     */
+    void subscribe_external_light_status(std::function<void(bool on)> callback);
 
     // ==================== Camera (S600L only) ====================
 
@@ -332,6 +466,9 @@ public:
      */
     bool get_storage(StorageInfo& out);
 
+    /** @brief Format speaker storage (deletes all content!). @return true on success. */
+    bool format_storage();
+
     /** @brief Restart the speaker. @return true on success. */
     bool restart();
 
@@ -360,6 +497,40 @@ public:
      * @return true on success (even if the list is empty).
      */
     bool get_all_params(std::vector<ParamValue>& out);
+
+    /** @brief Set an integer parameter. @return true on success. */
+    bool set_param_int(const std::string& name, int value);
+
+    /** @brief Set a float parameter. @return true on success. */
+    bool set_param_float(const std::string& name, float value);
+
+    /** @brief Set a custom string parameter. @return true on success. */
+    bool set_param_custom(const std::string& name, const std::string& value);
+
+    /** @brief Get an integer parameter. @return true on success. */
+    bool get_param_int(const std::string& name, int& out);
+
+    /** @brief Get a float parameter. @return true on success. */
+    bool get_param_float(const std::string& name, float& out);
+
+    /** @brief Get a custom string parameter. @return true on success. */
+    bool get_param_custom(const std::string& name, std::string& out);
+
+    // ==================== Log ====================
+
+    /**
+     * @brief Subscribe to log information from the speaker.
+     * @param callback Called for each log message.
+     * @return Opaque handle for unsubscribe_log_information().
+     */
+    using LogHandle = int;
+    LogHandle subscribe_log_information(std::function<void(const LogInformation&)> callback);
+
+    /**
+     * @brief Unsubscribe from log information.
+     * @param handle Handle returned by subscribe_log_information().
+     */
+    void unsubscribe_log_information(LogHandle handle);
 
 private:
     struct Impl;
