@@ -17,6 +17,7 @@
  */
 
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -143,6 +144,14 @@ int main(int argc, const char* argv[])
         return 1;
     }
 
+    // Route SDK-internal log messages to stderr so they don't interleave
+    // with the per-chunk progress lines that go to stdout.
+    speaker.set_sdk_log_callback(
+        [](SpeakerInterface::SdkLogLevel level, const std::string& message) {
+            std::cerr << "[speaker] [" << sdk_log_level_to_string(level) << "] "
+                      << message << std::endl;
+        });
+
     if (!speaker.is_ftp_available()) {
         std::cout << "Note: FTP not available. File operations will not work." << std::endl;
     }
@@ -167,13 +176,31 @@ int main(int argc, const char* argv[])
 
         // ---------- File operations ----------
         } else if (cmd == "upload" && args.size() >= 2) {
-            speaker.upload_audio(args[1]);
+            speaker.upload_audio_with_cb(args[1],
+                [](const SpeakerInterface::TransferProgress& p) {
+                    std::cout << "\rUploading [" << std::setw(3) << p.percentage << "%] "
+                              << p.bytes_transferred << " of " << p.total_bytes
+                              << std::flush;
+                    if (p.percentage >= 100) std::cout << std::endl;
+                });
 
         } else if (cmd == "download" && args.size() >= 3) {
-            speaker.download_audio(args[1], args[2]);
+            speaker.download_audio_with_cb(args[1], args[2],
+                [](const SpeakerInterface::TransferProgress& p) {
+                    std::cout << "\rDownloading [" << std::setw(3) << p.percentage << "%] "
+                              << p.bytes_transferred << " of " << p.total_bytes
+                              << std::flush;
+                    if (p.percentage >= 100) std::cout << std::endl;
+                });
 
         } else if (cmd == "upload_fw" && args.size() >= 2) {
-            speaker.upload_firmware(args[1]);
+            speaker.upload_firmware_with_cb(args[1],
+                [](const SpeakerInterface::TransferProgress& p) {
+                    std::cout << "\rUploading firmware [" << std::setw(3) << p.percentage << "%] "
+                              << p.bytes_transferred << " of " << p.total_bytes
+                              << std::flush;
+                    if (p.percentage >= 100) std::cout << std::endl;
+                });
 
         } else if (cmd == "list") {
             SpeakerInterface::FileList files;

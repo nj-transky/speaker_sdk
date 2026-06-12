@@ -154,3 +154,14 @@ std::string log_level_to_string(SpeakerInterface::LogLevel level)
     default:                                 return "Unknown";
     }
 }
+
+std::string sdk_log_level_to_string(SpeakerInterface::SdkLogLevel level)
+{
+    switch (level) {
+    case SpeakerInterface::SdkLogLevel::Debug:   return "DEBUG";
+    case SpeakerInterface::SdkLogLevel::Info:    return "INFO";
+    case SpeakerInterface::SdkLogLevel::Warning: return "WARN";
+    case SpeakerInterface::SdkLogLevel::Error:   return "ERROR";
+    default:                                     return "?";
+    }
+}

@@ -27,3 +27,4 @@ std::string play_status_to_string(SpeakerInterface::PlayStatus status);
 std::string voice_status_to_string(SpeakerInterface::RealTimeVoiceStatus status);
 std::string light_mode_to_string(SpeakerInterface::LightMode mode);
 std::string log_level_to_string(SpeakerInterface::LogLevel level);
+std::string sdk_log_level_to_string(SpeakerInterface::SdkLogLevel level);
