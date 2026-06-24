@@ -1,170 +1,465 @@
-# Speaker Interface SDK API 调用文档
+# Speaker Interface SDK API 文档
 
-## 初始化流程
+---
+
+## 1. 快速开始
+
+### 1.1 SDK 版本号
 
 ```cpp
 #include "speaker_interface.h"
+#include <cstdio>
 
-SpeakerInterface speaker;
-speaker.set_verbose(true);  // 启用调试输出
+int main() {
+    std::printf("Speaker SDK %s\n", SpeakerInterface::sdk_version());
+}
+```
 
-// 连接设备
-if (!speaker.init("192.168.144.67", 14556)) {
-    // 连接失败处理
+### 1.2 最简示例
+
+最小可运行示例：连接设备，上传音频，断开。
+
+```cpp
+#include "speaker_interface.h"
+#include <iostream>
+
+int main() {
+    SpeakerInterface speaker;
+    speaker.set_verbose(true);
+
+    // 连接设备
+    if (!speaker.init("192.168.144.67", 14556)) {
+        std::cerr << "Init failed" << std::endl;
+        return 1;
+    }
+
+    // 上传音频（无进度回调，进度打到 stderr）
+    auto status = speaker.upload_audio("./audio/test.wav");
+    if (status != SpeakerInterface::FileOperationStatus::Success) {
+        std::cerr << "Upload failed (status=" << static_cast<int>(status) << ")" << std::endl;
+        return 1;
+    }
+
+    std::cout << "Done" << std::endl;
+    return 0;
 }
 ```
 
 ---
 
-## 音频文件操作
+## 2. 初始化与连接
 
-| API | 说明 |
-|-----|------|
-| `upload_audio(local_path)` | 上传音频文件到喊话器 |
-| `list_audio(FileList& out)` | 列出喊话器的音频文件 |
-| `rename_audio(old_name, new_name)` | 重命名音频文件 |
-| `delete_audio(filename)` | 删除音频文件 |
-| `subscribe_audio_info(filename, callback)` | 订阅音频文件信息，获取 index |
+### 2.1 通过 IP + 端口连接
 
----
-
-## 播放控制
-
-**重要**：播放前必须先调用 `subscribe_audio_info` 获取音频文件的 index：
 
 ```cpp
-// 1. 订阅音频信息，获取 index
-uint32_t audio_index = 0;
-speaker.subscribe_audio_info("audio.wav", [&](const SpeakerInterface::AudioFileInfo& info) {
-    audio_index = info.index;
-    printf("Audio index: %u, format: %s, length: %.1fs\n",
-           info.index, info.format.c_str(), info.length_seconds);
+speaker.init("192.168.144.67", 14556);
+```
+
+### 2.3 状态查询
+
+```cpp
+if (speaker.is_connected()) { /* ... */ }
+if (speaker.is_ftp_available()) { /* 可以做文件操作 */ }
+```
+
+### 2.4 连接断开回调
+
+```cpp
+speaker.subscribe_on_disconnect([]() {
+    std::cerr << "device disconnected!" << std::endl;
 });
+```
 
-// 2. 根据 index 播放
-speaker.play(audio_index);      // 播放一次
-speaker.loop_play(audio_index); // 循环播放
 
-// 3. 停止
-speaker.stop();
+---
+
+## 3. 日志系统
+
+SDK 内部日志分**两套**，互不相关：
+
+| 系统 | 来源 | 公共 API | 类型 |
+|-----|------|---------|------|
+| 设备发过来的日志 | 设备端（speaker）上报 | `subscribe_log_information(cb)` + handle | `LogInformation { text; LogLevel log_level; }` |
+| SDK 内部日志 | SDK 库自己 | `set_sdk_log_callback(cb)` 一次性 hook | `SdkLogLevel + string` |
+
+### 3.1 SDK 内部日志级别
+
+```cpp
+enum class SdkLogLevel {
+    Debug,   // 内部细节（chunk 进度、原始 result code）
+    Info,    // 操作启动 / 成功
+    Warning, // 警告
+    Error    // 操作失败
+};
+```
+
+### 3.2 设置日志级别
+
+```cpp
+// 便捷方法：把所有级别日志（包括 Debug）都打开
+speaker.set_verbose(true);
+
+// 精细控制
+speaker.set_sdk_log_level(SpeakerInterface::SdkLogLevel::Info);
+```
+
+`set_verbose(true)` 等价于 `set_sdk_log_level(SdkLogLevel::Debug)`。
+
+### 3.3 接收 SDK 内部日志
+
+```cpp
+speaker.set_sdk_log_callback(
+    [](SpeakerInterface::SdkLogLevel level, const std::string& message) {
+        std::cerr << "[sdk] [" << sdk_log_level_to_string(level) << "] " << message << std::endl;
+    });
+```
+
+回调在 SDK 内部线程触发，**不要**调本 SDK 的其他方法。
+
+如果不挂 callback，**只有 Error 级别**会兜底打到 stderr；其他级别静默。
+
+### 3.4 接收设备日志（与 SDK 内部日志无关）
+
+```cpp
+auto handle = speaker.subscribe_log_information(
+    [](const SpeakerInterface::LogInformation& log) {
+        std::cout << "[" << log_level_to_string(log.log_level) << "] " << log.text << std::endl;
+    });
+
+// 取消订阅
+speaker.unsubscribe_log_information(handle);
 ```
 
 ---
 
-## 实时语音（喊话和监听, 喊话器 <-> 地面站(GCS)）
-### 实时喊话（GCS -> speaker）
+## 4. 文件操作
 
-GCS 推送音频流到 speaker：
+### 4.1 文件传输进度结构体
+
+带回调的传输 API 通过 `TransferProgress` 报告进度：
 
 ```cpp
-// 1. 使用 ffmpeg等工具推送音频到 speaker 的 15557 端口
-推流命令可参考README.md
-// 2. 喊话器开始拉流
-speaker.start_speak();
-
-// 3. 停止拉流
-speaker.stop_speak();
-
-// 4. GCS停止推流
+struct TransferProgress {
+    uint32_t bytes_transferred;  // 已传输字节
+    uint32_t total_bytes;        // 总字节
+    int percentage;              // 0~100
+};
 ```
 
-
-### 实时监听（speaker -> GCS）
-
-speaker 采集音频并推送到地面站：
+### 4.2 上传音频
 
 ```cpp
-// 1. 先设置 GCS 的 IP 地址（speaker 会把音频推送到这个地址）
+// 简单：进度走 stderr
+auto s1 = speaker.upload_audio("./audio/test.wav");
+
+// 带进度回调
+auto s2 = speaker.upload_audio_with_cb("./audio/test.wav",
+    [](const SpeakerInterface::TransferProgress& p) {
+        printf("\rUploading %3d%% %u/%u",
+               p.percentage, p.bytes_transferred, p.total_bytes);
+        if (p.percentage >= 100) printf("\n");
+    });
+```
+
+回调在内部线程触发，每 chunk 一次，**不要**在回调里调本 SDK 的其他方法。
+
+### 4.3 下载音频
+
+```cpp
+// 简单
+auto s = speaker.download_audio("audio.wav", "./audio.wav");
+
+// 带进度回调
+speaker.download_audio_with_cb("audio.wav", "./audio.wav",
+    [](const SpeakerInterface::TransferProgress& p) {
+        printf("\rDownloading %3d%%\n", p.percentage);
+    });
+```
+
+### 4.4 上传固件
+
+```cpp
+speaker.upload_firmware("./firmware_v1.0.bin");
+// 上传成功后会重启设备
+
+// 带进度回调
+speaker.upload_firmware_with_cb("./firmware_v1.0.bin",
+    [](const SpeakerInterface::TransferProgress& p) {
+        printf("FW upload: %d%%\n", p.percentage);
+    });
+```
+
+### 4.5 列出音频文件
+
+```cpp
+SpeakerInterface::FileList files;
+auto status = speaker.list_audio(files);
+if (status == SpeakerInterface::FileOperationStatus::Success) {
+    for (const auto& d : files.dirs)  std::cout << "[DIR] " << d << "\n";
+    for (const auto& f : files.files) std::cout << "       " << f << "\n";
+}
+```
+
+### 4.6 重命名音频
+
+```cpp
+auto status = speaker.rename_audio("old.wav", "new.wav");
+```
+
+**注意**：SDK **不**预检目标文件名是否已存在，而是直接尝试重命名
+如果需要"严格不覆盖"语义，调用方自己用 `list_audio` 预检：
+
+```cpp
+SpeakerInterface::FileList files;
+if (speaker.list_audio(files) == SpeakerInterface::FileOperationStatus::Success) {
+    bool exists = std::find(files.files.begin(), files.files.end(), "new.wav")
+                  != files.files.end();
+    if (exists) {
+        std::cerr << "target exists, aborting\n";
+    } else {
+        speaker.rename_audio("old.wav", "new.wav");
+    }
+}
+```
+
+### 4.7 删除音频
+
+```cpp
+auto status = speaker.delete_audio("audio.wav");
+```
+
+### 4.8 错误码：FileOperationStatus
+
+所有文件操作返回 `FileOperationStatus`（10 个值）：
+
+| 值 | 含义 | 典型场景 |
+|----|------|---------|
+| `Success` | 操作成功 | 正常完成 |
+| `Timeout` | 超时 | 网络差、ack 丢失 |
+| `FileIoError` | 文件 I/O 错误 | 磁盘满、I/O 错误 |
+| `FileExists` | 目标已存在 | 重命名撞名（设备拒绝覆盖） |
+| `FileDoesNotExist` | 源文件不存在 | 删 / 下载 / 重命名时源不在 |
+| `FileProtected` | 文件写保护 | 固件区 |
+| `InvalidParameter` | 参数非法 | 路径为空 |
+| `NoSystem` | SDK 未连接 | 设备断连 |
+| `Unknown` | 未知结果 | ftp 协议内部错误 |
+| `Failed` | 其它失败 | 笼统兜底 |
+
+
+调用方拿到 status 后可以自己 switch 出本地化消息：
+
+```cpp
+const char* desc(SpeakerInterface::FileOperationStatus s) {
+    switch (s) {
+        case SpeakerInterface::FileOperationStatus::Success:           return "OK";
+        case SpeakerInterface::FileOperationStatus::Timeout:           return "超时";
+        case SpeakerInterface::FileOperationStatus::FileExists:        return "目标已存在";
+        case SpeakerInterface::FileOperationStatus::FileDoesNotExist: return "源不存在";
+        case SpeakerInterface::FileOperationStatus::NoSystem:         return "未连接";
+        default:                                                       return "失败";
+    }
+}
+```
+
+---
+
+## 5. 播放控制
+
+播放前需要先订阅音频信息获取 `index`。`subscribe_audio_info` 是**异步**的，回调从内部线程触发，调用方必须**等待回调完成**再调 `play`，否则 `audio_index` 仍是旧值甚至 0。
+
+```cpp
+#include <thread>
+#include <chrono>
+
+// 先确保文件已上传
+speaker.upload_audio("./audio/audio.wav");
+
+// 1. 订阅获取 index
+uint32_t audio_index = 0;
+bool callback_received = false;
+speaker.subscribe_audio_info("audio.wav",
+    [&](const SpeakerInterface::AudioFileInfo& info) {
+        audio_index = info.index;
+        callback_received = true;
+        printf("Audio index: %u, format: %s, length: %.1fs\n",
+               info.index, info.format.c_str(), info.length_seconds);
+    });
+
+// 2. 等待回调完成（最多 5 秒）
+const int timeout_ms = 5000;
+int elapsed = 0;
+while (!callback_received && elapsed < timeout_ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    elapsed += 100;
+}
+
+if (!callback_received) {
+    std::cerr << "Timeout waiting for audio info" << std::endl;
+    return 1;
+}
+
+// 3. 用拿到的 index 播放
+speaker.play(audio_index);       // 单次播放
+speaker.loop_play(audio_index);  // 循环播放
+speaker.stop();                  // 停止
+```
+
+取消订阅：
+```cpp
+int handle = speaker.subscribe_audio_info("...", [](...){});
+// ...
+speaker.unsubscribe_audio_info(handle);
+```
+
+---
+
+## 6. 实时语音
+
+API 调用顺序与 ffmpeg / ffplay 命令详见发布版 `README.md`。本节只列 C++ 端 API。
+
+### 6.1 实时喊话（GCS → speaker）
+
+```cpp
+speaker.start_speak();   // speaker 开始拉流
+speaker.stop_speak();    // speaker 停止拉流
+```
+
+### 6.2 实时监听（speaker → GCS）
+
+**必须先**设置 `SPK_LAN_IP` 为 GCS 的 IP（通过 `set_param_custom`，见 §10）：
+
+```cpp
+speaker.set_param_custom("SPK_LAN_IP", "192.168.144.20"); // IP 替换为地面站实际的IP
+speaker.start_listen();   // speaker 开始推流到 GCS
+speaker.stop_listen();    // 停止推流
+```
+
+---
+
+## 7. 音量与角度
+
+```cpp
+speaker.set_volume(75.0f);     // 0.0~100.0
+speaker.set_angle(0.0f, 10.0f, 0.0f);  // H600L 专用：roll, pitch, yaw,只有pitch参数有效
+```
+
+---
+
+## 8. 灯光
+
+### 8.1 爆闪灯
+
+```cpp
+speaker.set_light_mode(1);  // 0~4
+speaker.set_light_on_off(true);
+```
+
+### 8.2 探照灯（S600L 专用）
+
+```cpp
+// 开关
+speaker.set_external_light_on_off(true);
+
+// 读取当前状态
+bool on = false;
+speaker.get_external_light_status(on);
+
+// 订阅状态变化
+speaker.subscribe_external_light_status(
+    [](bool on) { std::cout << "ext light: " << (on ? "on" : "off") << "\n"; });
+```
+
+---
+
+## 9. 摄像头（S600L 专用）
+
+### 9.1 基本操作
+
+```cpp
+speaker.take_picture();
+speaker.start_video();
+speaker.stop_video();
+speaker.switch_lens(0);  // 0 or 1
+```
+
+### 9.2 网络参数
+
+```cpp
+// 读取
+SpeakerInterface::CameraNetworkParams params;
+speaker.get_camera_network_params(params);
+std::cout << "IP: " << params.ip_address << "\n";
+std::cout << "bitrate code: " << params.bitrate << "\n";
+std::cout << "resolution code: " << params.resolution << "\n";
+std::cout << "encoding code: " << params.encoding << "\n";
+
+// 写入
+params.ip_address = "192.168.144.67";
+params.bitrate = 3;       // 0=Default, 1=0.5M, 2=1M, 3=2M, 4=3M, 5=4M, 6=0.1M, 7=0.2M
+params.resolution = 1;    // 0=Default, 1=1080p, 2=720p, 3=576p
+params.encoding = 1;      // 0=Default, 1=H264, 2=H265
+speaker.set_camera_network_params(params);
+```
+
+---
+
+## 10. 设备信息与参数
+
+### 10.1 设备信息
+
+```cpp
+SpeakerInterface::DeviceInfo info;
+if (speaker.get_information(info)) {
+    std::cout << "Vendor:   " << info.vendor_name << "\n"
+              << "Model:    " << info.model_name << "\n"
+              << "Serial:   " << info.serial_number << "\n"
+              << "Firmware: " << info.firmware_version << "\n";
+}
+```
+
+### 10.2 参数配置
+
+参数读写有 `set_param_int` / `set_param_float` / `set_param_custom`
+
+最常见的参数配置场景是实时监听需要指定 GCS 的 IP：
+
+```cpp
+// 启动实时监听前，必须先告诉 speaker GCS 的 IP
 speaker.set_param("SPK_LAN_IP", "192.168.144.20");
-
-// 2. 启动推流
 speaker.start_listen();
-
-// 3. GCS 端监听 UDP 端口接收音频流
-拉流命令可参考 README.md
 ```
 
+其它参数（如音量、灯光模式等）使用专门的 API（§7、§8），**不要**用 `set_param` 覆盖。
 
 ---
 
-## 音量与角度
+## 11. 错误码参考
 
-| API | 说明 |
-|-----|------|
-| `set_volume(0~100)` | 设置音量 |
-| `set_angle(roll, pitch, yaw)` | 设置角度（H600L 专用）|
+### 11.1 FileOperationStatus（文件操作）
 
----
+见 §4.8。10 个值，命名与 `mavftppro::Ftp::Result` 对齐。
 
-## 灯光控制
+### 11.2 SdkLogLevel（日志）
 
-| API | 说明 |
-|-----|------|
-| `set_light_mode(0~4)` | 设置灯光模式 |
-| `set_light_on_off(true/false)` | 开关内置灯光 |
-| `set_external_light_on_off(true/false)` | 开关探照灯（S600L 专用）|
+见 §3.1。4 个值。
 
----
+### 11.3 设备 LogLevel（`subscribe_log_information` 收到）
 
-## 摄像头（S600L 专用）
-
-| API | 说明 |
-|-----|------|
-| `take_picture()` | 拍照 |
-| `start_video()` | 开始录像 |
-| `stop_video()` | 停止录像 |
-| `switch_lens(0/1)` | 切换镜头 |
-| `get_camera_network_params(params)` | 获取摄像头网络参数 |
-| `set_camera_network_params(params)` | 设置摄像头网络参数 |
-
----
-
-## 设备信息与参数
-
-| API | 说明 |
-|-----|------|
-| `get_information(DeviceInfo& out)` | 获取设备信息 |
-| `get_storage(StorageInfo& out)` | 获取存储容量 |
-| `restart()` | 重启设备 |
-| `set_param(name, value)` | 设置参数 |
-| `get_param(name, ParamValue& out)` | 获取参数 |
-| `get_all_params(vector<ParamValue>& out)` | 获取所有参数 |
-
----
-
-
-## CLI命令参考
+```cpp
+enum class LogLevel {
+    Debug, Info, Warning, Error, Fatal
+};
 ```
-  upload <local_file>               - Upload audio file into speaker
-  upload_fw <firmware_path>          - Upload firmware and restart
-  list                              - List audio files
-  rename <old_name> <new_name>      - Rename audio file
-  delete <filename>                 - Delete audio file
-  sub <filename>                    - Subscribe to audio info
-  play <index>                      - Play audio once
-  loop <index>                      - Loop-play audio
-  stop                              - Stop playback
-  listen <start|stop>               - Real-time listen
-  speak <start|stop>                - Real-time speak
-  volume <0-100>                    - Set volume
-  angle <roll> <pitch> <yaw>        - Set angle (H600L)
-  light_mode <mode>                 - Set light mode(0-4)
-  light <on|off>                    - Light on/off
-  ex_light <on|off>                 - External light (S600L)
-  take_picture                      - Take photo (S600L)
-  start_video                       - Start recording (S600L)
-  stop_video                        - Stop recording (S600L)
-  switch_lens <0|1>                 - Switch lens (S600L)
-  camera_get                - Get camera network params (S600L)
-  camera_set <ip> <bitrate> <resolution> <encoding>
-                                    - Set camera network params (S600L)
-                                      bitrate: 0-7, resolution: 0-3, encoding: 0-2
-  information                       - Device info
-  storage                           - Storage info
-  restart                           - Restart speaker
-  config set <name> <value>         - Set parameter
-  config get <name>                 - Get parameter
-  config list                       - List all parameters
-  help                              - Show this help
-  exit                              - Quit
-```
+
+5 个值，与设备固件日志级别对应。
+
+### 11.4 其它
+
+`play` / `set_volume` / `set_angle` / `take_picture` / 灯光 / 摄像头等**仍返回 `bool`**。失败时通过 SDK 日志（`set_sdk_log_callback`）查看原因。
+
+---
+
+## 12. 与本 SDK 配套的 demo
+
+发布版 `demo/` 目录下提供完整可运行的交互式 CLI 示例，覆盖本文档所有 API。**CLI 命令参考**（如 `upload` / `download` / `list` / `rename` / `play` 等）见 `demo/README.md`。

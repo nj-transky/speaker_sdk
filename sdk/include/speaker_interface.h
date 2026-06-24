@@ -12,6 +12,7 @@
  *
  * Quick start:
  *   SpeakerInterface speaker;
+ *   std::cout << "Speaker SDK " << SpeakerInterface::sdk_version() << std::endl;
  *   speaker.set_verbose(true);  // optional: enable debug prints
  *   if (!speaker.init("192.168.144.67", 14556)) { ... handle error ... }
  *
@@ -63,6 +64,27 @@ public:
     struct FileList {
         std::vector<std::string> dirs;   ///< Sub-directory names
         std::vector<std::string> files;  ///< File names
+    };
+
+    /** @brief Progress information for an in-flight file transfer. */
+    struct TransferProgress {
+        uint32_t bytes_transferred{0};  ///< Bytes transferred so far
+        uint32_t total_bytes{0};        ///< Total bytes to transfer
+        int percentage{0};              ///< 0~100, 0 if total_bytes==0
+    };
+
+    /** @brief Status of a file-system operation. */
+    enum class FileOperationStatus {
+        Success,            ///< Operation completed successfully.
+        Timeout,            ///< Operation timed out.
+        FileIoError,        ///< File I/O error.
+        FileExists,         ///< File already exists.
+        FileDoesNotExist,   ///< File does not exist.
+        FileProtected,      ///< File is write-protected.
+        InvalidParameter,   ///< Caller passed an invalid argument.
+        NoSystem,           ///< SDK is not connected to the device.
+        Unknown,            ///< Unknown / unspecified result.
+        Failed              ///< Operation failed for another reason.
     };
 
     /** @brief Speaker hardware/firmware information. */
@@ -133,7 +155,7 @@ public:
         On    ///< On
     };
 
-    /** @brief Log level. */
+    /** @brief Device-reported log level (from the speaker via subscribe_log_information). */
     enum class LogLevel {
         Debug,   ///< Debug log level
         Info,    ///< Info log level
@@ -141,6 +163,17 @@ public:
         Error,   ///< Error log level
         Fatal    ///< Fatal log level
     };
+
+    /** @brief SDK-internal log level (separate from device-reported log level). */
+    enum class SdkLogLevel {
+        Debug = 0, ///< Debug (per-chunk progress, internal state)
+        Info  = 1, ///< Info (operation start/success)
+        Warning = 2, ///< Warning
+        Error = 3  ///< Error (operation failure)
+    };
+
+    /** @brief Callback type for SDK-internal log messages. */
+    using SdkLogCallback = std::function<void(SdkLogLevel level, const std::string& message)>;
 
     /** @brief Gimbal angle values. */
     struct Angle {
@@ -173,16 +206,43 @@ public:
     // ==================== Configuration ====================
 
     /**
-     * @brief Enable or disable verbose (debug) output to stderr.
-     * @param enabled  true = print progress/debug messages, false = silent (default).
+     * @brief Get the SDK version string (MAJOR.MINOR.PATCH, e.g. "1.3.0").
      *
-     * When disabled, all methods are completely silent and only return data.
-     * The demo CLI sets this to true for interactive use.
+     * Single source of truth: CMakeLists.txt's project(VERSION ...).
+     * Returns a pointer to a baked-in string literal; do not free it.
+     */
+    static const char* sdk_version();
+
+    /**
+     * @brief Enable or disable verbose (debug) output.
+     * @param enabled  true = lower log level to Debug (per-chunk progress,
+     *                 internal state messages), false = restore Info level.
+     *
+     * This is a convenience wrapper over set_sdk_log_level(). It does NOT install
+     * a callback; the default behavior is: Error messages still go to stderr
+     * if no callback is set; other levels are silent.
      */
     void set_verbose(bool enabled);
 
-    /** @brief Check whether verbose mode is on. */
+    /** @brief Check whether the current SDK log level is Debug. */
     bool is_verbose() const;
+
+    /**
+     * @brief Set the minimum SDK log level. Messages below this level are dropped.
+     * @param level  Minimum level to emit. Default is Info.
+     */
+    void set_sdk_log_level(SdkLogLevel level);
+
+    /**
+     * @brief Install a callback to receive all SDK-internal log messages.
+     * @param callback  Called from SDK threads; do NOT call SpeakerInterface
+     *                  methods from inside. If nullptr, the default behavior
+     *                  applies: Error messages go to stderr, others are silent.
+     *
+     * This is for SDK-internal log messages only. To receive log messages
+     * reported by the speaker device, use subscribe_log_information().
+     */
+    void set_sdk_log_callback(SdkLogCallback callback);
 
     // ==================== Initialization ====================
 
@@ -235,40 +295,73 @@ public:
     /**
      * @brief Upload a local audio file into the speaker's directory.
      * @param local_path Full local path, e.g. "./audio/test.wav"
-     * @return true on success.
+     * @return FileOperationStatus.
      *
+     * If you want progress delivered to a callback, use upload_audio_with_cb().
      */
-    bool upload_audio(const std::string& local_path);
+    FileOperationStatus upload_audio(const std::string& local_path);
+
+    /**
+     * @brief Upload a local audio file into the speaker's directory, with
+     *        a per-chunk progress callback.
+     * @param local_path Full local path, e.g. "./audio/test.wav"
+     * @param progress_cb Progress callback. Called on every chunk from an
+     *                    internal thread; do NOT call other
+     *                    SpeakerInterface methods from inside.
+     * @return FileOperationStatus.
+     */
+    FileOperationStatus upload_audio_with_cb(const std::string& local_path,
+                                             std::function<void(const TransferProgress&)> progress_cb);
 
     /**
      * @brief Download an audio file from the speaker's  directory.
      * @param remote_filename Filename in  to download.
      * @param local_path Local path to save the file.
-     * @return true on success.
+     * @return FileOperationStatus.
+     *
+     * If you want progress delivered to a callback, use download_audio_with_cb().
      */
-    bool download_audio(const std::string& remote_filename, const std::string& local_path);
+    FileOperationStatus download_audio(const std::string& remote_filename, const std::string& local_path);
+
+    /**
+     * @brief Download an audio file from the speaker's  directory, with
+     *        a per-chunk progress callback.
+     * @param remote_filename Filename in  to download.
+     * @param local_path Local path to save the file.
+     * @param progress_cb Progress callback. See upload_audio_with_cb().
+     * @return FileOperationStatus.
+     */
+    FileOperationStatus download_audio_with_cb(const std::string& remote_filename,
+                                               const std::string& local_path,
+                                               std::function<void(const TransferProgress&)> progress_cb);
 
     /**
      * @brief List audio files in the speaker's  directory.
      * @param[out] out  Populated with directory entries on success.
-     * @return true on success.
+     * @return FileOperationStatus.
      */
-    bool list_audio(FileList& out);
+    FileOperationStatus list_audio(FileList& out);
 
     /**
      * @brief Rename an audio file on the speaker.
      * @param old_name Current filename.
      * @param new_name New filename.
-     * @return true on success.
+     * @return FileOperationStatus.
+     *
+     * The SDK does NOT pre-check whether the target filename already
+     * exists. If the target exists, behavior depends on the device
+     * firmware: some override, some return `Code::FileExists`. Callers
+     * that need a strict "no overwrite" semantic should pre-check via
+     * list_audio() and decide themselves.
      */
-    bool rename_audio(const std::string& old_name, const std::string& new_name);
+    FileOperationStatus rename_audio(const std::string& old_name, const std::string& new_name);
 
     /**
      * @brief Delete an audio file from the speaker.
      * @param filename Filename to delete.
-     * @return true on success.
+     * @return FileOperationStatus.
      */
-    bool delete_audio(const std::string& filename);
+    FileOperationStatus delete_audio(const std::string& filename);
 
     /**
      * @brief Subscribe to audio info updates for a given file.
@@ -293,8 +386,19 @@ public:
      * @param firmware_local_path Local path to the firmware file.
      * @return true if upload succeeded and restart was issued.
      *
+     * If you want progress delivered to a callback, use upload_firmware_with_cb().
      */
-    bool upload_firmware(const std::string& firmware_local_path);
+    FileOperationStatus upload_firmware(const std::string& firmware_local_path);
+
+    /**
+     * @brief Upload firmware and restart the speaker, with a per-chunk
+     *        progress callback.
+     * @param firmware_local_path Local path to the firmware file.
+     * @param progress_cb Progress callback. See upload_audio_with_cb().
+     * @return FileOperationStatus.
+     */
+    FileOperationStatus upload_firmware_with_cb(const std::string& firmware_local_path,
+                                                std::function<void(const TransferProgress&)> progress_cb);
 
     // ==================== Playback Control ====================
 
