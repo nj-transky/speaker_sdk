@@ -114,6 +114,7 @@ int main(int argc, const char* argv[])
 
     // 1. Initialize speaker SDK ---
     SpeakerInterface speaker;
+    std::cout << "Speaker SDK " << SpeakerInterface::sdk_version() << std::endl;
     speaker.set_verbose(true);  // Demo mode: show debug/progress output
 
     std::string first_arg = argv[1];
@@ -204,7 +205,7 @@ int main(int argc, const char* argv[])
 
         } else if (cmd == "list") {
             SpeakerInterface::FileList files;
-            if (speaker.list_audio(files)) {
+            if (speaker.list_audio(files) == SpeakerInterface::FileOperationStatus::Success) {
                 if (!files.dirs.empty()) {
                     std::cout << "Directories:" << std::endl;
                     for (const auto& d : files.dirs)
