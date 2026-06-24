@@ -1,2 +1,5 @@
 demo/build
 demo/build-msvc
+.cursorindexingignore
+.specstory
+*.bak
