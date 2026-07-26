@@ -5,15 +5,16 @@
  * This is a simple interactive shell that demonstrates every SpeakerInterface API.
  *
  * Usage:
- *   ./S600L_client <ip> <port>
- *   ./S600L_client <connection_url> [ftp_url]
+ *   ./S600L_client --model <s600l|h600l> <ip> <port>
+ *   ./S600L_client --model <s600l|h600l> <connection_url> [ftp_url]
  *
  * Examples:
- *   ./S600L_client 192.168.144.67 14556
- *   ./S600L_client udpin://0.0.0.0:14550
- *   ./S600L_client mqttout://47.120.45.100:1883;client1
- *   ./S600L_client serial:///dev/ttyUSB0:57600
- *   ./S600L_client tcpout://192.168.144.67:14556 tcpout://192.168.144.67:14566
+ *   ./S600L_client --model s600l 192.168.144.67 14556
+ *   ./S600L_client --model h600l 192.168.144.67 14556
+ *   ./S600L_client --model s600l udpin://0.0.0.0:14550
+ *   ./S600L_client --model h600l mqttout://47.120.45.100:1883;client1
+ *   ./S600L_client --model h600l serial:///dev/ttyUSB0:57600
+ *   ./S600L_client --model s600l tcpout://192.168.144.67:14556 tcpout://192.168.144.67:14566
  */
 
 #include <iostream>
@@ -34,6 +35,29 @@ static std::vector<std::string> split(const std::string& s)
     std::string t;
     while (iss >> t) tokens.push_back(t);
     return tokens;
+}
+
+static void print_usage(const char* program)
+{
+    std::cerr << "Usage: " << program << " --model <s600l|h600l> <ip> <port>\n"
+              << "       " << program
+              << " --model <s600l|h600l> <connection_url> [ftp_url]\n"
+              << "  e.g.: " << program << " --model s600l 192.168.144.67 14556\n"
+              << "        " << program << " --model h600l 192.168.144.67 14556\n"
+              << "        " << program << " --model s600l mqttout://broker:1883;client1\n"
+              << "        " << program << " --model h600l serial:///dev/ttyUSB0:57600"
+              << std::endl;
+}
+
+static const char* device_model_name(SpeakerInterface::DeviceModel model)
+{
+    switch (model) {
+    case SpeakerInterface::DeviceModel::S600L:
+        return "S600L";
+    case SpeakerInterface::DeviceModel::H600L:
+        return "H600L";
+    }
+    return "Unknown";
 }
 
 static void print_help()
@@ -103,38 +127,67 @@ static void print_param(const SpeakerInterface::ParamValue& pv)
 int main(int argc, const char* argv[])
 {
     // --- Parse command-line arguments ---
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <ip> <port>\n"
-                  << "       " << argv[0] << " <connection_url> [ftp_url]\n"
-                  << "  e.g.: " << argv[0] << " 192.168.144.67 14556\n"
-                  << "        " << argv[0] << " mqttout://broker:1883;client1\n"
-                  << "        " << argv[0] << " serial:///dev/ttyUSB0:57600" << std::endl;
+    if (argc < 2 || std::string(argv[1]) != "--model") {
+        std::cerr << "Missing required option: --model <s600l|h600l>." << std::endl;
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    if (argc < 3) {
+        std::cerr << "Missing value for --model." << std::endl;
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    SpeakerInterface::DeviceModel selected_model;
+    const std::string model_arg = argv[2];
+    if (model_arg == "s600l") {
+        selected_model = SpeakerInterface::DeviceModel::S600L;
+    } else if (model_arg == "h600l") {
+        selected_model = SpeakerInterface::DeviceModel::H600L;
+    } else {
+        std::cerr << "Invalid model: " << model_arg
+                  << " (expected s600l or h600l)" << std::endl;
+        return 1;
+    }
+
+    constexpr int argument_index = 3;
+    if (argc <= argument_index) {
+        std::cerr << "Missing connection arguments." << std::endl;
+        print_usage(argv[0]);
         return 1;
     }
 
     // 1. Initialize speaker SDK ---
     SpeakerInterface speaker;
+    if (!speaker.set_model(selected_model)) {
+        std::cerr << "Failed to configure device model." << std::endl;
+        return 1;
+    }
+
     std::cout << "Speaker SDK " << SpeakerInterface::sdk_version() << std::endl;
+    std::cout << "Selected device model: " << device_model_name(selected_model) << std::endl;
     speaker.set_verbose(true);  // Demo mode: show debug/progress output
 
-    std::string first_arg = argv[1];
+    std::string first_arg = argv[argument_index];
     bool init_ok = false;
 
     if (first_arg.find("://") != std::string::npos) {
         // URL mode
-        std::string ftp_url = (argc >= 3) ? argv[2] : "";
+        std::string ftp_url =
+            (argc > argument_index + 1) ? argv[argument_index + 1] : "";
         init_ok = speaker.init(first_arg, ftp_url, 10);
     } else {
         // Traditional ip port mode
-        if (argc < 3) {
-            std::cerr << "Usage: " << argv[0] << " <ip> <port>" << std::endl;
+        if (argc <= argument_index + 1) {
+            print_usage(argv[0]);
             return 1;
         }
         int port = 0;
         try {
-            port = std::stoi(argv[2]);
+            port = std::stoi(argv[argument_index + 1]);
         } catch (...) {
-            std::cerr << "Invalid port: " << argv[2] << std::endl;
+            std::cerr << "Invalid port: " << argv[argument_index + 1] << std::endl;
             return 1;
         }
         init_ok = speaker.init(first_arg, port);

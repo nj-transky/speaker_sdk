@@ -8,6 +8,18 @@ BUILD_GOALS := all run copy print
 REQUESTED_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
 NEEDS_SDK := $(filter $(BUILD_GOALS),$(REQUESTED_GOALS))
 
+# Running the demo always requires an explicit device model.
+ifneq ($(filter run,$(REQUESTED_GOALS)),)
+ifeq ($(strip $(MODEL)),)
+$(error MODEL is required; use MODEL=s600l or MODEL=h600l)
+endif
+ifneq ($(strip $(MODEL)),s600l)
+ifneq ($(strip $(MODEL)),h600l)
+$(error Invalid MODEL '$(MODEL)'; use MODEL=s600l or MODEL=h600l)
+endif
+endif
+endif
+
 SDK_ROOT := $(abspath $(CURDIR)/../sdk)
 SDK_INC := $(SDK_ROOT)/include
 
@@ -85,7 +97,7 @@ all:
 	cmake --build $(CMAKE_BUILD_DIR) --config $(CMAKE_CONFIG)
 
 run: all
-	./$(CMAKE_BUILD_DIR)/$(CMAKE_CONFIG)/$(TARGET)$(EXE_EXT) $(IP) 14556
+	./$(CMAKE_BUILD_DIR)/$(CMAKE_CONFIG)/$(TARGET)$(EXE_EXT) --model $(MODEL) $(IP) 14556
 
 clean:
 	rm -rf $(CMAKE_BUILD_DIR) $(BUILD_DIR)
@@ -121,11 +133,12 @@ print:
 	@echo "CMAKE_BUILD_DIR=$(CMAKE_BUILD_DIR)"
 	@echo "CMAKE_CONFIG=$(CMAKE_CONFIG)"
 	@echo "CMAKE_PLATFORM=$(CMAKE_PLATFORM)"
+	@echo "MODEL=$(MODEL)"
 
 IP := 192.168.144.67
 ifneq ($(SDK_OS),win)
 run: copy
-	./build/$(TARGET)$(EXE_EXT) $(IP) 14556
+	./build/$(TARGET)$(EXE_EXT) --model $(MODEL) $(IP) 14556
 endif
 push:
 	ffmpeg -re -i ./audio/audio.wav \
