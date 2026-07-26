@@ -25,6 +25,8 @@ int main() {
 
 int main() {
     SpeakerInterface speaker;
+    // H600L 必须在 init() 前调用；S600L 可省略，默认即为 S600L。
+    // speaker.set_model(SpeakerInterface::DeviceModel::H600L);
     speaker.set_verbose(true);
 
     // 连接设备
@@ -49,7 +51,34 @@ int main() {
 
 ## 2. 初始化与连接
 
-### 2.1 通过 IP + 端口连接
+### 2.1 选择设备型号
+
+SDK 同时支持 S600L 和 H600L。默认型号是 `DeviceModel::S600L`；连接 H600L 时必须在 `init()` 前选择型号：
+
+```cpp
+SpeakerInterface speaker;
+if (!speaker.set_model(SpeakerInterface::DeviceModel::H600L)) {
+    std::cerr << "Set model failed" << std::endl;
+    return 1;
+}
+speaker.init("192.168.144.67", 14556);
+```
+
+`set_model()` 在初始化开始后会返回 `false`，当前选择可通过
+`get_model()` 查询。
+
+| 功能 | S600L | H600L |
+|-----|:-----:|:-----:|
+| 喊话、音频、文件、状态、日志、参数 | 支持 | 支持 |
+| 内置爆闪灯 | 支持 | 支持 |
+| 角度控制 | 不支持 | 支持 |
+| 外置探照灯 | 支持 | 不支持 |
+| 拍照、录像、镜头与相机网络参数 | 支持 | 不支持 |
+
+在 H600L 模式调用 S600L 专属 API 时，返回 `bool` 的方法会立即返回
+`false`；
+
+### 2.2 通过 IP + 端口连接
 
 
 ```cpp
@@ -357,6 +386,8 @@ speaker.set_light_on_off(true);
 
 ### 8.2 探照灯（S600L 专用）
 
+只有在型号为 S600L 时，SDK 才会在初始化阶段订阅探照灯状态。
+
 ```cpp
 // 开关
 speaker.set_external_light_on_off(true);
@@ -462,4 +493,15 @@ enum class LogLevel {
 
 ## 12. 与本 SDK 配套的 demo
 
-发布版 `demo/` 目录下提供完整可运行的交互式 CLI 示例，覆盖本文档所有 API。**CLI 命令参考**（如 `upload` / `download` / `list` / `rename` / `play` 等）见 `demo/README.md`。
+发布版 `demo/` 目录下提供完整可运行的交互式 CLI 示例，覆盖本文档所有 API。启动后输入 `help` 可查看 `upload`、`download`、`list`、`rename`、`play` 等全部命令。
+
+为避免连接错误型号，demo 不使用 SDK 的默认型号；每次启动都必须显式传入
+`--model s600l` 或 `--model h600l`。缺少或无法识别的型号会在建立网络连接前退出。
+
+```bash
+# S600L
+./S600L_client --model s600l 192.168.144.67 14556
+
+# H600L
+./S600L_client --model h600l 192.168.144.67 14556
+```

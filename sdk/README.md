@@ -5,6 +5,15 @@
   + 可通过`ping 192.168.144.67`查看是否在同一局域网
 # API 使用
 参看 `API_DOC.md`
+
+连接 H600L 时，必须在 `init()` 前指定型号；S600L 为兼容旧程序仍是默认值：
+
+```cpp
+SpeakerInterface speaker;
+speaker.set_model(SpeakerInterface::DeviceModel::H600L);
+speaker.init("192.168.144.67", 14556);
+```
+
 # 编译和运行
 ```bash
 # 编译
@@ -13,8 +22,15 @@ cd demo
 make OS=linux ARCH=x86 SDK_VERSION=22.04
 # Win
 make
-# 运行
-make run
+# demo 运行时必须明确指定型号
+# 运行 S600L
+make MODEL=s600l run
+# 运行 H600L
+make MODEL=h600l run
+
+# 也可直接运行，--model 不可省略
+./build/S600L_client --model s600l 192.168.144.67 14556
+./build/S600L_client --model h600l 192.168.144.67 14556
 ```
 
 # 喊话功能

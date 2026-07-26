@@ -3,9 +3,6 @@
  * @file speaker_interface.h
  * @brief High-level speaker SDK interface for S600L / H600L.
  *
- * This is the ONLY file you need to read as a developer.
- * It wraps all SDK initialization, file transfer, playback, real-time voice,
- * device control, light, camera, and parameter APIs into simple method calls.
  *
  * All methods return data through output parameters or return values --
  * they do NOT print to stdout unless verbose mode is enabled.
@@ -14,6 +11,10 @@
  *   SpeakerInterface speaker;
  *   std::cout << "Speaker SDK " << SpeakerInterface::sdk_version() << std::endl;
  *   speaker.set_verbose(true);  // optional: enable debug prints
+ *
+ *   // set model before init
+ *   // speaker.set_model(SpeakerInterface::DeviceModel::H600L);
+ *
  *   if (!speaker.init("192.168.144.67", 14556)) { ... handle error ... }
  *
  *   // Or connect via URL (TCP/UDP/Serial/MQTT):
@@ -59,6 +60,12 @@ public:
     // ==================== Data Structures ====================
     // These are plain structs with no SDK dependency.
     // Developers can use them freely without including any SDK header.
+
+    /** @brief Supported speaker device models. */
+    enum class DeviceModel {
+        S600L,  ///< Vehicle model with external searchlight and cameras.
+        H600L   ///< Standard speaker model without external searchlight or cameras.
+    };
 
     /** @brief Result of a directory listing operation. */
     struct FileList {
@@ -206,7 +213,21 @@ public:
     // ==================== Configuration ====================
 
     /**
-     * @brief Get the SDK version string (MAJOR.MINOR.PATCH, e.g. "1.3.0").
+     * @brief Select the speaker device model.
+     * @param model Device model to use for capability selection.
+     * @return true if the model was accepted.
+     *
+     * Call this before init(). The default is DeviceModel::S600L .
+     * Changing the model after initialization has started is
+     * rejected.
+     */
+    bool set_model(DeviceModel model);
+
+    /** @brief Get the currently selected speaker device model. */
+    DeviceModel get_model() const;
+
+    /**
+     * @brief Get the SDK version string (MAJOR.MINOR.PATCH, e.g. "1.4.0").
      *
      * Single source of truth: CMakeLists.txt's project(VERSION ...).
      * Returns a pointer to a baked-in string literal; do not free it.
