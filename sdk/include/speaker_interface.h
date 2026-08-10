@@ -227,7 +227,7 @@ public:
     DeviceModel get_model() const;
 
     /**
-     * @brief Get the SDK version string (MAJOR.MINOR.PATCH, e.g. "1.4.0").
+     * @brief Get the SDK version string (MAJOR.MINOR.PATCH).
      *
      * Single source of truth: CMakeLists.txt's project(VERSION ...).
      * Returns a pointer to a baked-in string literal; do not free it.

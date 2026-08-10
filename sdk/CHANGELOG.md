@@ -1,5 +1,9 @@
 # Speaker MAVSDK Client SDK — 更新日志
 
+## [1.5.1] - 2026-08-10
+### 修复
+- 修复 Windows 上传音频或固件后无法list的问题
+
 ## [1.5.0] - 2026-07-26
 ### 新增
 - 新增 `DeviceModel`、`set_model()` 和 `get_model()`，可在运行时选择 S600L 或 H600L
