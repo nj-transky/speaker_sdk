@@ -1,0 +1,293 @@
+#!/usr/bin/expect -f
+
+# Automates the interactive demo with Expect. One round is:
+#   start demo (init) -> light off -> verify -> deinit -> exit
+#   start demo (init) -> light on  -> verify -> deinit -> exit
+
+proc print_usage {} {
+    global argv0
+    puts "Usage: $argv0 --model <s600l|h600l> ?options?"
+    puts ""
+    puts "Options:"
+    puts "  --ip <address>       Device IP (default: 192.168.144.67)"
+    puts "  --port <port>        MAVSDK TCP port (default: 14556)"
+    puts "  --rounds <count>     Complete OFF/ON rounds (default: 10)"
+    puts "  --delay-ms <ms>      Delay between demo sessions (default: 200)"
+    puts "  --timeout <seconds>  Timeout for each interaction (default: 15)"
+    puts "  --verbose            Show complete demo/MAVSDK output"
+    puts "  --help               Show this help"
+    puts ""
+    puts "The script builds the existing demo before testing."
+    puts "The final requested light state is ON."
+}
+
+proc stop_child {child} {
+    catch {send -i $child -- "exit\r"}
+    after 50
+    catch {close -i $child}
+    catch {wait -i $child}
+}
+
+proc wait_for_prompt {child} {
+    global timeout
+    set matched 0
+    expect -i $child \
+        -exact "Enter command: " {set matched 1} \
+        timeout {} \
+        eof {}
+    return $matched
+}
+
+proc verify_light_state {child state retries retry_delay_ms} {
+    global timeout
+    set expected [string totitle $state]
+
+    for {set attempt 1} {$attempt <= $retries} {incr attempt} {
+        after $retry_delay_ms
+        send -i $child -- "status\r"
+
+        set actual ""
+        set prompt_consumed 0
+        set response_ok 1
+        expect -i $child \
+            -re {Light on/off:[[:space:]]+(On|Off)} {
+                set actual $expect_out(1,string)
+            } \
+            -exact "Enter command: " {
+                set prompt_consumed 1
+            } \
+            timeout {
+                set response_ok 0
+            } \
+            eof {
+                return -1
+            }
+
+        if {!$response_ok} {
+            return 0
+        }
+        if {!$prompt_consumed && ![wait_for_prompt $child]} {
+            return -1
+        }
+        if {$actual eq $expected} {
+            return 1
+        }
+    }
+    return 0
+}
+
+proc run_session {demo model ip port round rounds state} {
+    global timeout spawn_id expect_out
+    set display_state [string toupper $state]
+    set expected_log "OK Light $state"
+
+    puts [format {Round %d/%d, light %s: init} $round $rounds $display_state]
+    spawn -noecho $demo --model $model $ip $port
+    set child $spawn_id
+
+    set ready 0
+    set startup_error ""
+    expect -i $child \
+        -exact "Enter command: " {
+            set ready 1
+        } \
+        -re {SDK init failed\.} {
+            set startup_error "SDK init failed"
+        } \
+        timeout {
+            set startup_error "timed out waiting for the demo prompt"
+        } \
+        eof {
+            set startup_error "demo exited before the prompt"
+        }
+    if {!$ready} {
+        puts stderr "FAIL: $startup_error"
+        stop_child $child
+        return 0
+    }
+
+    send -i $child -- "light $state\r"
+    set command_ok 0
+    set command_error ""
+    expect -i $child \
+        -exact $expected_log {
+            set command_ok 1
+        } \
+        -re {\[speaker\] \[ERROR\][^\r\n]*} {
+            set command_error $expect_out(0,string)
+        } \
+        timeout {
+            set command_error "light command timed out"
+        } \
+        eof {
+            set command_error "demo exited during the light command"
+        }
+    if {!$command_ok} {
+        puts stderr "FAIL: light $display_state failed: $command_error"
+        stop_child $child
+        return 0
+    }
+    if {![wait_for_prompt $child]} {
+        puts stderr "FAIL: prompt did not return after light $display_state"
+        stop_child $child
+        return 0
+    }
+
+    set verification [verify_light_state $child $state 30 100]
+    if {$verification != 1} {
+        if {$verification == -1} {
+            set reason "demo exited while checking status"
+        } else {
+            set reason "status did not become $display_state within 3 seconds"
+        }
+        puts stderr "FAIL: $reason"
+        stop_child $child
+        return 0
+    }
+
+    send -i $child -- "deinit\r"
+    set deinit_ok 0
+    expect -i $child \
+        -exact "SDK connections closed." {
+            set deinit_ok 1
+        } \
+        timeout {} \
+        eof {}
+    if {!$deinit_ok || ![wait_for_prompt $child]} {
+        puts stderr "FAIL: deinit did not complete cleanly"
+        stop_child $child
+        return 0
+    }
+
+    send -i $child -- "exit\r"
+    set exited 0
+    expect -i $child \
+        eof {set exited 1} \
+        timeout {}
+    if {!$exited} {
+        puts stderr "FAIL: demo did not exit after deinit"
+        stop_child $child
+        return 0
+    }
+
+    set wait_result [wait -i $child]
+    set exit_status [lindex $wait_result 3]
+    if {$exit_status != 0} {
+        puts stderr "FAIL: demo exit status was $exit_status"
+        return 0
+    }
+
+    puts "PASS: light $display_state and deinit"
+    return 1
+}
+
+set model ""
+set ip "192.168.144.67"
+set port 14556
+set rounds 10
+set delay_ms 200
+set timeout 15
+set verbose 0
+
+for {set index 0} {$index < [llength $argv]} {incr index} {
+    set option [lindex $argv $index]
+    if {$option eq "--help"} {
+        print_usage
+        exit 0
+    }
+    if {$option eq "--verbose"} {
+        set verbose 1
+        continue
+    }
+    incr index
+    if {$index >= [llength $argv]} {
+        puts stderr "Missing value for $option"
+        print_usage
+        exit 2
+    }
+    set value [lindex $argv $index]
+
+    switch -- $option {
+        --model {set model $value}
+        --ip {set ip $value}
+        --port {set port $value}
+        --rounds {set rounds $value}
+        --delay-ms {set delay_ms $value}
+        --timeout {set timeout $value}
+        default {
+            puts stderr "Unknown option: $option"
+            print_usage
+            exit 2
+        }
+    }
+}
+
+if {$model ne "s600l" && $model ne "h600l"} {
+    puts stderr "--model must be specified as s600l or h600l"
+    exit 2
+}
+if {$ip eq ""} {
+    puts stderr "--ip cannot be empty"
+    exit 2
+}
+if {![string is integer -strict $port] || $port < 1 || $port > 65525} {
+    puts stderr "--port must be an integer from 1 to 65525"
+    exit 2
+}
+if {![string is integer -strict $rounds] || $rounds < 1} {
+    puts stderr "--rounds must be a positive integer"
+    exit 2
+}
+if {![string is integer -strict $delay_ms] || $delay_ms < 0} {
+    puts stderr "--delay-ms must be a non-negative integer"
+    exit 2
+}
+if {![string is integer -strict $timeout] || $timeout < 1} {
+    puts stderr "--timeout must be a positive integer"
+    exit 2
+}
+
+set script_dir [file dirname [file normalize [info script]]]
+set demo [file join $script_dir build S600L_client]
+
+puts "Building the existing demo..."
+set build_output ""
+if {[catch {exec make -C $script_dir all 2>@1} build_output]} {
+    puts stderr $build_output
+    puts stderr "FAIL: demo build failed"
+    exit 1
+}
+if {$build_output ne ""} {
+    puts $build_output
+}
+if {![file executable $demo]} {
+    puts stderr "FAIL: demo executable was not created: $demo"
+    exit 1
+}
+
+puts "Speaker lifecycle test"
+puts "Model: $model"
+puts "Device: $ip:$port"
+puts "Rounds: $rounds ([expr {$rounds * 2}] demo sessions)"
+puts "Sequence: init -> light OFF -> deinit -> init -> light ON -> deinit"
+puts "Final requested light state: ON"
+
+log_user $verbose
+set started_ms [clock milliseconds]
+set sessions 0
+for {set round 1} {$round <= $rounds} {incr round} {
+    foreach state {off on} {
+        incr sessions
+        if {![run_session $demo $model $ip $port $round $rounds $state]} {
+            puts stderr "RESULT: FAIL at round $round, light [string toupper $state]"
+            exit 1
+        }
+        if {$round != $rounds || $state eq "off"} {
+            after $delay_ms
+        }
+    }
+}
+
+set elapsed_ms [expr {[clock milliseconds] - $started_ms}]
+puts "RESULT: PASS, rounds=$rounds, sessions=$sessions, elapsed=${elapsed_ms}ms"
+exit 0
