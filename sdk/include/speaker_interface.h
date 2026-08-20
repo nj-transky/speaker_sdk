@@ -31,6 +31,9 @@
  *
  *   // Parameters
  *   speaker.set_param_int("SOME_PARAM", 42);
+ *
+ *   // Explicitly close  connections. The destructor is a fallback.
+ *   speaker.deinit();
  */
 
 #include <cstdint>
@@ -299,6 +302,22 @@ public:
               const std::string& ftp_url,
               int timeout_s);
 
+    /**
+     * @brief Deinitialize the SDK and release all connection resources.
+     *
+     * This is the synchronous, idempotent inverse of init(). It closes both
+     * MAVSDK and FTP transports, removes native subscriptions, and allows the
+     * same SpeakerInterface instance to call set_model() and init() again.
+     * User subscription registrations are preserved and restored by the next
+     * successful init(). A caller-initiated deinit does not invoke the callback
+     * registered with subscribe_on_disconnect().
+     *
+     * @note Do not call this method from an SDK callback. deinit() waits for
+     *       in-flight blocking operations and already-running session
+     *       callbacks to finish.
+     */
+    void deinit() noexcept;
+
     /** @brief Check whether init() succeeded and the system is connected. */
     bool is_connected() const;
 
@@ -388,7 +407,11 @@ public:
      * @brief Subscribe to audio info updates for a given file.
      * @param filename The audio file name to query.
      * @param callback Called each time audio info is received.
-     * @return Opaque handle for unsubscribe_audio_info().
+     * @return Stable opaque handle for unsubscribe_audio_info(), or 0 when
+     *         callback is empty.
+     *
+     * The registration can be created while disconnected and survives
+     * deinit(); it is attached automatically by the next successful init().
      */
     using AudioInfoHandle = int;
     AudioInfoHandle subscribe_audio_info(const std::string& filename,
@@ -646,7 +669,11 @@ public:
     /**
      * @brief Subscribe to log information from the speaker.
      * @param callback Called for each log message.
-     * @return Opaque handle for unsubscribe_log_information().
+     * @return Stable opaque handle for unsubscribe_log_information(), or 0
+     *         when callback is empty.
+     *
+     * The registration can be created while disconnected and survives
+     * deinit(); it is attached automatically by the next successful init().
      */
     using LogHandle = int;
     LogHandle subscribe_log_information(std::function<void(const LogInformation&)> callback);
