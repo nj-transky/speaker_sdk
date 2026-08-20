@@ -10,9 +10,22 @@
 
 ```cpp
 SpeakerInterface speaker;
-speaker.set_model(SpeakerInterface::DeviceModel::H600L);
-speaker.init("192.168.144.67", 14556);
+if (!speaker.set_model(SpeakerInterface::DeviceModel::H600L) ||
+    !speaker.init("192.168.144.67", 14556)) {
+    // 处理初始化失败
+}
+
+// 使用结束后主动关闭 MAVSDK 和 FTP 连接
+speaker.deinit();
 ```
+
+`deinit()` 可重复调用；同一个对象在 `deinit()` 后可以重新选择型号并再次
+`init()`。析构函数也会执行清理，但建议在不再使用连接时显式调用。
+
+交互式 demo 会在 `init()` 前注册掉线回调。设备心跳超时后，回调只投递事件，
+由独立生命周期线程执行 `deinit()`，从而停止状态请求重试且避免在 SDK 回调中
+自锁。输入 `connection` 可查看 当前连接状态。demo 采用掉线后关闭
+连接的 fail-fast 策略，不会自动等待设备重新连接。
 
 # 编译和运行
 ```bash

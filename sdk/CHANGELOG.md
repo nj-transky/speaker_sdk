@@ -1,5 +1,17 @@
 # Speaker MAVSDK Client SDK — 更新日志
 
+## [1.6.0] - 2026-08-20
+### 新增
+- 新增同步、可重复调用的 `deinit()`，可主动关闭连接，并支持同一个 `SpeakerInterface` 对象再次 `init()`
+- demo 新增 `deinit` 命令，并在正常退出时显式清理 SDK 连接
+- demo 注册非预期掉线回调，并通过独立生命周期线程安全执行连接清理
+- demo 新增 `connection` 命令，用于查看 MAVSDK 与 FTP 连接状态
+- demo 新增对`subscribe_on_disconnect`的调用
+
+### 修复
+- 修复设备断线后 `is_connected()` 可能继续返回 `true` 的问题
+- 修复 `deinit()` 后调用命令、参数、相机或文件接口可能访问失效资源的问题
+
 ## [1.5.1] - 2026-08-10
 ### 修复
 - 修复 Windows 上传音频或固件后无法list的问题

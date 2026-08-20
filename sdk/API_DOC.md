@@ -32,6 +32,7 @@ int main() {
     // 连接设备
     if (!speaker.init("192.168.144.67", 14556)) {
         std::cerr << "Init failed" << std::endl;
+        speaker.deinit(); // 初始化失败后调用也是安全的
         return 1;
     }
 
@@ -39,9 +40,12 @@ int main() {
     auto status = speaker.upload_audio("./audio/test.wav");
     if (status != SpeakerInterface::FileOperationStatus::Success) {
         std::cerr << "Upload failed (status=" << static_cast<int>(status) << ")" << std::endl;
+        speaker.deinit();
         return 1;
     }
 
+    // 主动关闭 MAVSDK 和 FTP 连接
+    speaker.deinit();
     std::cout << "Done" << std::endl;
     return 0;
 }
@@ -92,13 +96,48 @@ if (speaker.is_connected()) { /* ... */ }
 if (speaker.is_ftp_available()) { /* 可以做文件操作 */ }
 ```
 
-### 2.4 连接断开回调
+### 2.4 主动反初始化与重新初始化
+
+```cpp
+speaker.deinit();
+```
+
+`deinit()` 是 `init()` 的同步、可重复调用的反向操作：它会等待当前正在执行的
+阻塞式 SDK 操作和已经进入的会话回调结束，然后关闭连接。
+初始化前调用或连续调用多次都不会产生副作用。析构函数也会执行相同清理，
+但建议在不再使用连接时显式调用。
+
+主动 `deinit()` 不会触发异常断线回调。调用完成后：
+
+- `is_connected()` 和 `is_ftp_available()` 返回 `false`；
+- 命令、参数、相机等 `bool` 接口返回 `false`；
+- 文件接口返回 `FileOperationStatus::NoSystem`；
+- 查询失败时不会修改调用方传入的输出参数。
+
+同一个对象可以重新使用，型号、日志配置以及尚未取消的音频信息/设备日志
+订阅会保留；设备状态缓存和底层订阅句柄则会为新连接重新建立：
+
+```cpp
+speaker.deinit();
+speaker.set_model(SpeakerInterface::DeviceModel::H600L); // 可选
+if (!speaker.init("192.168.144.67", 14556)) {
+    // 处理重新初始化失败
+}
+```
+
+`deinit()` 不能从 SDK 的状态、日志、断线或传输进度回调中调用，否则会等待
+当前回调所属操作而造成死锁。请通知业务线程，由业务线程执行反初始化。
+
+### 2.5 连接断开回调
 
 ```cpp
 speaker.subscribe_on_disconnect([]() {
     std::cerr << "device disconnected!" << std::endl;
 });
 ```
+
+该回调只表示已连接设备发生了非预期链路断开；调用方主动执行 `deinit()` 时
+不会触发。回调运行在 SDK 内部线程，不要在回调中调用本 SDK 的其他方法。
 
 
 ---
@@ -505,3 +544,8 @@ enum class LogLevel {
 # H600L
 ./S600L_client --model h600l 192.168.144.67 14556
 ```
+
+demo 在初始化前注册 `subscribe_on_disconnect()`。发生非预期掉线时，回调会立即
+打印通知并唤醒独立生命周期线程，由该线程调用 `deinit()`；不会在 SDK 回调线程
+内直接反初始化。这样可停止断电后的状态请求重试，同时避免回调自锁。可输入
+`connection` 查看 MAVSDK 和 FTP 当前状态。
