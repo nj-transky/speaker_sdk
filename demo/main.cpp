@@ -17,16 +17,18 @@
  *   ./S600L_client --model s600l tcpout://192.168.144.67:14556 tcpout://192.168.144.67:14566
  */
 
-#include <iostream>
+#include <condition_variable>
+#include <chrono>
 #include <iomanip>
+#include <iostream>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "speaker_interface.h"
 #include "speaker_utils.h"
-#include <thread>
-#include <chrono>
 
 static std::vector<std::string> split(const std::string& s)
 {
@@ -101,6 +103,8 @@ static void print_help()
               << "  config list                       - List all parameters\n"
               << "  log_sub                           - Subscribe to log\n"
               << "  log_unsub <handle>                 - Unsubscribe log\n"
+              << "  connection                        - Show MAVSDK/FTP connection state\n"
+              << "  deinit                            - Close SDK connections\n"
               << "  help                              - Show this help\n"
               << "  exit                              - Quit\n"
               << "======================================\n";
@@ -123,6 +127,87 @@ static void print_param(const SpeakerInterface::ParamValue& pv)
     }
     std::cout << std::endl;
 }
+
+/**
+ * Handles unexpected disconnects outside the SDK callback thread.
+ *
+ * SpeakerInterface::deinit() waits for callbacks from the current session, so
+ * calling it directly from subscribe_on_disconnect() would deadlock. The
+ * callback only posts an event; this worker owns the blocking teardown.
+ */
+class DisconnectCoordinator {
+public:
+    explicit DisconnectCoordinator(SpeakerInterface& speaker) :
+        speaker_(speaker), worker_([this]() { run(); })
+    {
+        speaker_.subscribe_on_disconnect([this]() { on_disconnect(); });
+    }
+
+    ~DisconnectCoordinator()
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stopping_ = true;
+        }
+        cv_.notify_one();
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+
+        // Drain/unsubscribe the native connection callback while this object
+        // is still alive, then remove the public callback that captures us.
+        speaker_.deinit();
+        speaker_.subscribe_on_disconnect({});
+    }
+
+    DisconnectCoordinator(const DisconnectCoordinator&) = delete;
+    DisconnectCoordinator& operator=(const DisconnectCoordinator&) = delete;
+
+private:
+    void on_disconnect()
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (stopping_ || disconnect_pending_) {
+                return;
+            }
+            disconnect_pending_ = true;
+        }
+
+        std::cerr
+            << "\n[speaker] [DISCONNECTED] Device heartbeat lost; "
+               "scheduling connection cleanup."
+            << std::endl;
+        cv_.notify_one();
+    }
+
+    void run()
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        while (true) {
+            cv_.wait(lock, [this]() { return stopping_ || disconnect_pending_; });
+            if (stopping_) {
+                return;
+            }
+            disconnect_pending_ = false;
+
+            lock.unlock();
+            speaker_.deinit();
+            std::cerr
+                << "[speaker] [DISCONNECTED] MAVSDK and FTP connections closed. "
+                   "Type 'exit' to quit the demo."
+                << std::endl;
+            lock.lock();
+        }
+    }
+
+    SpeakerInterface& speaker_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    bool stopping_{false};
+    bool disconnect_pending_{false};
+    std::thread worker_;
+};
 
 int main(int argc, const char* argv[])
 {
@@ -164,6 +249,7 @@ int main(int argc, const char* argv[])
         std::cerr << "Failed to configure device model." << std::endl;
         return 1;
     }
+    DisconnectCoordinator disconnect_coordinator(speaker);
 
     std::cout << "Speaker SDK " << SpeakerInterface::sdk_version() << std::endl;
     std::cout << "Selected device model: " << device_model_name(selected_model) << std::endl;
@@ -478,11 +564,24 @@ int main(int argc, const char* argv[])
             int handle = std::stoi(args[1]);
             speaker.unsubscribe_log_information(handle);
 
+        // ---------- Lifecycle ----------
+        } else if (cmd == "connection") {
+            std::cout << "MAVSDK connected: "
+                      << (speaker.is_connected() ? "yes" : "no") << '\n'
+                      << "FTP available:   "
+                      << (speaker.is_ftp_available() ? "yes" : "no")
+                      << std::endl;
+
+        } else if (cmd == "deinit") {
+            speaker.deinit();
+            std::cout << "SDK connections closed." << std::endl;
+
         } else {
             std::cout << "Unknown command or missing arguments. Type 'help' for commands." << std::endl;
         }
     }
 
+    speaker.deinit();
     std::cout << "Exiting Speaker Client." << std::endl;
     return 0;
 }
